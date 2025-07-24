@@ -1,0 +1,22 @@
+[gd_resource type="ShaderMaterial" load_steps=6 format=3 uid="uid://cll8gpvrd2o3r"]
+
+[ext_resource type="Shader" uid="uid://lwancmc20moy" path="res://assets/shaders/blend_shader.tres" id="1_0rl13"]
+[ext_resource type="Texture2D" uid="uid://dxtjsh1up54sb" path="res://assets/textures/ground_grassy_normal.png" id="2_d2sbf"]
+[ext_resource type="Texture2D" uid="uid://cg3ccmeufy48u" path="res://assets/textures/rock_grassy_normal.png" id="3_xhuw6"]
+[ext_resource type="Texture2D" uid="uid://cf80yjnvs2o5b" path="res://assets/textures/ground_grassy_albedo.png" id="4_ejsa2"]
+[ext_resource type="Texture2D" uid="uid://bjtap836he5un" path="res://assets/textures/rock_grassy_albedo.png" id="5_auy28"]
+
+[resource]
+render_priority = 0
+shader = ExtResource("1_0rl13")
+shader_parameter/texture_wall_triplanar2 = ExtResource("5_auy28")
+shader_parameter/texture_ground_triplanar = ExtResource("4_ejsa2")
+shader_parameter/offset = 0.325
+shader_parameter/fade = 0.095
+shader_parameter/normal_ground_triplanar = ExtResource("2_d2sbf")
+shader_parameter/normal_wall_triplanar = ExtResource("3_xhuw6")
+shader_parameter/normal_strength_wall = 15.0
+shader_parameter/normal_strength_ground = 5.0
+shader_parameter/triplanar_scale = Vector3(0.015, 0.015, 0.015)
+shader_parameter/triplanar_offset = Vector3(0, 0, 0)
+shader_parameter/triplanar_sharpness = 5.0

@@ -1,0 +1,718 @@
+#include "level_density_grid.h"
+
+#include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/core/math.hpp> // For clamp, min, max, etc.
+#include <godot_cpp/classes/global_constants.hpp> // For Error enum if needed
+#include <godot_cpp/classes/node.hpp> // For _Ready() if needed, although Resources don't have it
+#include <map> // For std::map if needed for A* point map instead of Dictionary
+#include <vector> // Added for temporary grid in low_pass and path nodes
+
+namespace godot {
+
+LevelDensityGrid::LevelDensityGrid() {
+    // Initialize Ref<> types
+    noise_generator.instantiate(); // Create a default instance
+    rng.instantiate();
+    rng->randomize(); // Seed the random number generator
+
+    // Set default noise properties on the created instance
+    if (noise_generator.is_valid()) {
+        noise_generator->set_noise_type(FastNoiseLite::TYPE_PERLIN);
+        noise_generator->set_seed(noise_seed);
+        noise_generator->set_frequency(noise_frequency);
+    }
+}
+
+LevelDensityGrid::~LevelDensityGrid() {
+    // Destructor logic if needed (Refs are automatically handled)
+}
+
+void LevelDensityGrid::_bind_methods() {
+    // --- Main Generation Function ---
+    ClassDB::bind_method(D_METHOD("generate_level_data", "world_grid_dimensions", "voxel_size"), &LevelDensityGrid::generate_level_data);
+
+    // --- Getters for Runtime Data ---
+    ClassDB::bind_method(D_METHOD("get_calculated_spawn_position"), &LevelDensityGrid::get_calculated_spawn_position);
+    ClassDB::bind_method(D_METHOD("get_calculated_end_position"), &LevelDensityGrid::get_calculated_end_position);
+    ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "calculated_spawn_position", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_READ_ONLY), "", "get_calculated_spawn_position");
+    ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "calculated_end_position", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_READ_ONLY), "", "get_calculated_end_position");
+
+
+    // --- Property Getters/Setters ---
+    // Noise Group
+    ADD_GROUP("Noise", "noise_");
+    ClassDB::bind_method(D_METHOD("set_noise_scale", "scale"), &LevelDensityGrid::set_noise_scale);
+    ClassDB::bind_method(D_METHOD("get_noise_scale"), &LevelDensityGrid::get_noise_scale);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "noise_scale"), "set_noise_scale", "get_noise_scale");
+
+    ClassDB::bind_method(D_METHOD("set_noise_intensity", "intensity"), &LevelDensityGrid::set_noise_intensity);
+    ClassDB::bind_method(D_METHOD("get_noise_intensity"), &LevelDensityGrid::get_noise_intensity);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "noise_intensity"), "set_noise_intensity", "get_noise_intensity");
+
+    ClassDB::bind_method(D_METHOD("set_noise_seed", "seed"), &LevelDensityGrid::set_noise_seed);
+    ClassDB::bind_method(D_METHOD("get_noise_seed"), &LevelDensityGrid::get_noise_seed);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "noise_seed"), "set_noise_seed", "get_noise_seed");
+
+    ClassDB::bind_method(D_METHOD("set_noise_frequency", "freq"), &LevelDensityGrid::set_noise_frequency);
+    ClassDB::bind_method(D_METHOD("get_noise_frequency"), &LevelDensityGrid::get_noise_frequency);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "noise_frequency"), "set_noise_frequency", "get_noise_frequency");
+
+    ClassDB::bind_method(D_METHOD("set_noise_generator", "noise"), &LevelDensityGrid::set_noise_generator);
+    ClassDB::bind_method(D_METHOD("get_noise_generator"), &LevelDensityGrid::get_noise_generator);
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "noise_generator", PROPERTY_HINT_RESOURCE_TYPE, "FastNoiseLite"), "set_noise_generator", "get_noise_generator");
+
+
+    // Rooms Group
+    ADD_GROUP("Rooms", "room_");
+    ClassDB::bind_method(D_METHOD("set_room_count", "count"), &LevelDensityGrid::set_room_count);
+    ClassDB::bind_method(D_METHOD("get_room_count"), &LevelDensityGrid::get_room_count);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "room_count"), "set_room_count", "get_room_count");
+
+    ClassDB::bind_method(D_METHOD("set_min_room_size", "size"), &LevelDensityGrid::set_min_room_size);
+    ClassDB::bind_method(D_METHOD("get_min_room_size"), &LevelDensityGrid::get_min_room_size);
+    ADD_PROPERTY(PropertyInfo(Variant::VECTOR3I, "room_min_size"), "set_min_room_size", "get_min_room_size");
+
+    ClassDB::bind_method(D_METHOD("set_max_room_size", "size"), &LevelDensityGrid::set_max_room_size);
+    ClassDB::bind_method(D_METHOD("get_max_room_size"), &LevelDensityGrid::get_max_room_size);
+    ADD_PROPERTY(PropertyInfo(Variant::VECTOR3I, "room_max_size"), "set_max_room_size", "get_max_room_size");
+
+    ClassDB::bind_method(D_METHOD("set_max_placement_tries", "tries"), &LevelDensityGrid::set_max_placement_tries);
+    ClassDB::bind_method(D_METHOD("get_max_placement_tries"), &LevelDensityGrid::get_max_placement_tries);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "room_max_placement_tries"), "set_max_placement_tries", "get_max_placement_tries");
+
+
+    // Paths Group
+    ADD_GROUP("Paths", "path_");
+    ClassDB::bind_method(D_METHOD("set_dungeon_mode", "enabled"), &LevelDensityGrid::set_dungeon_mode);
+    ClassDB::bind_method(D_METHOD("get_dungeon_mode"), &LevelDensityGrid::get_dungeon_mode);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "path_dungeon_mode"), "set_dungeon_mode", "get_dungeon_mode");
+
+    ClassDB::bind_method(D_METHOD("set_path_brush_min_radius", "radius"), &LevelDensityGrid::set_path_brush_min_radius);
+    ClassDB::bind_method(D_METHOD("get_path_brush_min_radius"), &LevelDensityGrid::get_path_brush_min_radius);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "path_brush_min_radius"), "set_path_brush_min_radius", "get_path_brush_min_radius");
+
+    ClassDB::bind_method(D_METHOD("set_path_brush_max_radius", "radius"), &LevelDensityGrid::set_path_brush_max_radius);
+    ClassDB::bind_method(D_METHOD("get_path_brush_max_radius"), &LevelDensityGrid::get_path_brush_max_radius);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "path_brush_max_radius"), "set_path_brush_max_radius", "get_path_brush_max_radius");
+
+    ClassDB::bind_method(D_METHOD("set_use_square_brush", "enabled"), &LevelDensityGrid::set_use_square_brush);
+    ClassDB::bind_method(D_METHOD("get_use_square_brush"), &LevelDensityGrid::get_use_square_brush);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "path_use_square_brush"), "set_use_square_brush", "get_use_square_brush");
+
+    ClassDB::bind_method(D_METHOD("set_vertical_movement_cost_multiplier", "mult"), &LevelDensityGrid::set_vertical_movement_cost_multiplier);
+    ClassDB::bind_method(D_METHOD("get_vertical_movement_cost_multiplier"), &LevelDensityGrid::get_vertical_movement_cost_multiplier);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_vertical_movement_cost_multiplier"), "set_vertical_movement_cost_multiplier", "get_vertical_movement_cost_multiplier");
+    
+    // Bezier Path Bindings
+    ClassDB::bind_method(D_METHOD("set_path_segments", "segments"), &LevelDensityGrid::set_path_segments);
+    ClassDB::bind_method(D_METHOD("get_path_segments"), &LevelDensityGrid::get_path_segments);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "path_segments", PROPERTY_HINT_RANGE, "1,10,1"), "set_path_segments", "get_path_segments");
+
+    ClassDB::bind_method(D_METHOD("set_path_bend_factor", "factor"), &LevelDensityGrid::set_path_bend_factor);
+    ClassDB::bind_method(D_METHOD("get_path_bend_factor"), &LevelDensityGrid::get_path_bend_factor);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_bend_factor", PROPERTY_HINT_RANGE, "0.0,2.0,0.05"), "set_path_bend_factor", "get_path_bend_factor");
+    
+    ClassDB::bind_method(D_METHOD("set_path_wobble_magnitude", "magnitude"), &LevelDensityGrid::set_path_wobble_magnitude);
+    ClassDB::bind_method(D_METHOD("get_path_wobble_magnitude"), &LevelDensityGrid::get_path_wobble_magnitude);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_wobble_magnitude", PROPERTY_HINT_RANGE, "0.0,10.0,0.1"), "set_path_wobble_magnitude", "get_path_wobble_magnitude");
+    
+    ClassDB::bind_method(D_METHOD("set_path_wobble_frequency", "frequency"), &LevelDensityGrid::set_path_wobble_frequency);
+    ClassDB::bind_method(D_METHOD("get_path_wobble_frequency"), &LevelDensityGrid::get_path_wobble_frequency);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_wobble_frequency", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_path_wobble_frequency", "get_path_wobble_frequency");
+
+    ClassDB::bind_method(D_METHOD("set_connect_from_ground_level", "enabled"), &LevelDensityGrid::set_connect_from_ground_level);
+    ClassDB::bind_method(D_METHOD("get_connect_from_ground_level"), &LevelDensityGrid::get_connect_from_ground_level);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "path_connect_from_ground_level"), "set_connect_from_ground_level", "get_connect_from_ground_level");
+
+    // Smoothing Group
+    ADD_GROUP("Smoothing", "smoothing_");
+    ClassDB::bind_method(D_METHOD("set_smooth_terrain", "enabled"), &LevelDensityGrid::set_smooth_terrain);
+    ClassDB::bind_method(D_METHOD("get_smooth_terrain"), &LevelDensityGrid::get_smooth_terrain);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "smoothing_enabled"), "set_smooth_terrain", "get_smooth_terrain");
+    
+    ClassDB::bind_method(D_METHOD("set_smoothing_strength", "strength"), &LevelDensityGrid::set_smoothing_strength);
+    ClassDB::bind_method(D_METHOD("get_smoothing_strength"), &LevelDensityGrid::get_smoothing_strength);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "smoothing_strength", PROPERTY_HINT_RANGE, "1,5,1"), "set_smoothing_strength", "get_smoothing_strength");
+
+
+    ClassDB::bind_method(D_METHOD("_find_ground_position", "start_pos"), &LevelDensityGrid::_find_ground_position);
+}
+
+// --- Main Generation Function ---
+void LevelDensityGrid::generate_level_data(const Vector3i &world_grid_dimensions, float voxel_size) {
+    if (world_grid_dimensions.x <= 0 || world_grid_dimensions.y <= 0 || world_grid_dimensions.z <= 0) {
+        UtilityFunctions::printerr("LevelDensityGrid.generate_level_data: Invalid World Grid Dimensions ", world_grid_dimensions);
+        return;
+    }
+
+    UtilityFunctions::print("Generating Level Data for Grid Size: ", world_grid_dimensions);
+
+    // 1. Initialize Grid - Make it solid initially
+    initialize_grid(world_grid_dimensions.x, world_grid_dimensions.y, world_grid_dimensions.z, WORLD_SOLID_VALUE);
+
+    // Ensure RNG is ready
+    if (!rng.is_valid()) {
+        rng.instantiate();
+        rng->randomize();
+         UtilityFunctions::printerr("LevelDensityGrid: RNG was invalid, re-initialized.");
+    }
+
+    // 2. Generate Rooms and Paths
+    _generate_rooms_and_paths(voxel_size);
+
+    // 3. Optional Smoothing
+    if (smooth_terrain && !use_square_brush) { // Smoothing doesn't make sense for square corridors
+        UtilityFunctions::print("Smoothing terrain with strength: ", smoothing_strength);
+        low_pass();
+    }
+
+    UtilityFunctions::print("Level Data Generation Complete. Spawn: ", calculated_spawn_position, ", End: ", calculated_end_position);
+}
+
+// --- Internal Helper Functions ---
+
+void LevelDensityGrid::_generate_rooms_and_paths(float voxel_size) {
+    if (get_grid_size_x() <= 0) {
+        UtilityFunctions::printerr("LevelDensityGrid._generate_rooms_and_paths: Grid not initialized.");
+        return;
+    }
+    if (!rng.is_valid()) {
+        UtilityFunctions::printerr("LevelDensityGrid._generate_rooms_and_paths: RNG not valid.");
+        return;
+    }
+
+    // --- 1. Place Rooms ---
+    TypedArray<Dictionary> generated_rooms;
+    int placed_room_count = 0;
+
+    UtilityFunctions::print("Attempting to place ", room_count, " rooms.");
+
+    for (int i = 0; i < room_count; ++i) {
+        bool room_placed = false;
+        for (int try_count = 0; try_count < max_placement_tries; ++try_count) {
+            Dictionary new_room = _pick_room();
+            if (!new_room.is_empty()) {
+                if (!_check_overlap(new_room, generated_rooms)) {
+                    _create_room(new_room);
+                    generated_rooms.append(new_room);
+                    placed_room_count++;
+                    room_placed = true;
+                    break; // Exit placement tries loop
+                }
+            }
+        }
+        if (!room_placed) {
+            UtilityFunctions::printerr("Failed to place room ", i + 1, " after ", max_placement_tries, " tries.");
+        }
+    }
+
+    UtilityFunctions::print("Placed ", generated_rooms.size(), " rooms.");
+
+    if (generated_rooms.size() < 2) {
+        UtilityFunctions::printerr("Not enough rooms generated (", generated_rooms.size(), ") to create paths.");
+        if (get_grid_size_x() > 0) {
+            Vector3i center = get_grid_dimensions() / 2;
+            Vector3i spawn_cell = _find_ground_position(center);
+            calculated_spawn_position = (Vector3(spawn_cell) + Vector3(0.5f, 0.5f, 0.5f)) * voxel_size;
+            calculated_end_position = calculated_spawn_position;
+        } else {
+            calculated_spawn_position = Vector3(0,0,0);
+            calculated_end_position = Vector3(0,0,0);
+        }
+        return;
+    }
+    
+    // --- 2. Carve Paths Between Rooms ---
+    if (dungeon_mode) {
+        UtilityFunctions::print("Connecting ", generated_rooms.size(), " rooms with dungeon-style corridors.");
+    } else {
+        UtilityFunctions::print("Connecting ", generated_rooms.size(), " rooms with bezier curve paths.");
+    }
+    
+    const float max_x = (float)get_grid_size_x() - 1.0f;
+    const float max_y = (float)get_grid_size_y() - 1.0f;
+    const float max_z = (float)get_grid_size_z() - 1.0f;
+
+    for (int i = 0; i < generated_rooms.size() - 1; ++i) {
+        Dictionary start_room = generated_rooms[i];
+        Dictionary end_room = generated_rooms[i + 1];
+
+        Vector3i start_room_start = start_room["start"];
+        Vector3i start_room_end = start_room["end"];
+        Vector3i end_room_start = end_room["start"];
+        Vector3i end_room_end = end_room["end"];
+
+        Vector3 path_start_point;
+        Vector3 path_end_point;
+
+        if (connect_from_ground_level) {
+            Vector3 start_room_center = Vector3(start_room_start + (start_room_end - start_room_start) / 2);
+            Vector3 end_room_center = Vector3(end_room_start + (end_room_end - end_room_start) / 2);
+            Vector3 direction_vector = end_room_center - start_room_center;
+
+            int start_y = Math::max(start_room_start.y, 1);
+            int start_x, start_z;
+            if (abs(direction_vector.x) > abs(direction_vector.z)) {
+                start_z = rng->randi_range(start_room_start.z, start_room_end.z - 1);
+                start_x = (direction_vector.x > 0) ? start_room_end.x - 1 : start_room_start.x;
+            } else {
+                start_x = rng->randi_range(start_room_start.x, start_room_end.x - 1);
+                start_z = (direction_vector.z > 0) ? start_room_end.z - 1 : start_room_start.z;
+            }
+            path_start_point = Vector3(start_x, start_y, start_z);
+
+            int end_y = Math::max(end_room_start.y, 1);
+            int end_x, end_z;
+             if (abs(direction_vector.x) > abs(direction_vector.z)) {
+                end_z = rng->randi_range(end_room_start.z, end_room_end.z - 1);
+                end_x = (direction_vector.x > 0) ? end_room_start.x : end_room_end.x - 1;
+            } else {
+                end_x = rng->randi_range(end_room_start.x, end_room_end.x - 1);
+                end_z = (direction_vector.z > 0) ? end_room_start.z : end_room_end.z - 1;
+            }
+            path_end_point = Vector3(end_x, end_y, end_z);
+
+        } else {
+            path_start_point = Vector3(start_room_start + (start_room_end - start_room_start) / 2);
+            path_end_point = Vector3(end_room_start + (end_room_end - end_room_start) / 2);
+        }
+
+        if (dungeon_mode) {
+            _carve_dungeon_path(path_start_point, path_end_point);
+        } else {
+            std::vector<Vector3> path_nodes;
+            path_nodes.push_back(path_start_point);
+            int segments = (path_segments > 1) ? path_segments : 1;
+            if (segments > 1) {
+                Vector3 overall_delta = path_end_point - path_start_point;
+                for (int j = 1; j < segments; ++j) {
+                    float fraction = static_cast<float>(j) / static_cast<float>(segments);
+                    Vector3 base_point = path_start_point + overall_delta * fraction;
+                    float offset_mag = (overall_delta.length() / static_cast<float>(segments)) * 0.75f;
+                    Vector3 offset(rng->randf_range(-offset_mag, offset_mag), rng->randf_range(-offset_mag, offset_mag), rng->randf_range(-offset_mag, offset_mag));
+                    Vector3 intermediate_node = base_point + offset;
+                    intermediate_node.x = Math::clamp(intermediate_node.x, 0.0f, max_x);
+                    intermediate_node.y = Math::clamp(intermediate_node.y, 0.0f, max_y);
+                    intermediate_node.z = Math::clamp(intermediate_node.z, 0.0f, max_z);
+                    path_nodes.push_back(intermediate_node);
+                }
+            }
+            path_nodes.push_back(path_end_point);
+
+            for (size_t j = 0; j < path_nodes.size() - 1; ++j) {
+                Vector3 p0 = path_nodes[j];
+                Vector3 p3 = path_nodes[j + 1];
+                Vector3 delta = p3 - p0;
+                float offset_magnitude = delta.length() * path_bend_factor;
+                Vector3 cp1_offset(rng->randf_range(-offset_magnitude, offset_magnitude), rng->randf_range(-offset_magnitude, offset_magnitude), rng->randf_range(-offset_magnitude, offset_magnitude));
+                Vector3 cp2_offset(rng->randf_range(-offset_magnitude, offset_magnitude), rng->randf_range(-offset_magnitude, offset_magnitude), rng->randf_range(-offset_magnitude, offset_magnitude));
+                Vector3 p1 = p0 + (delta / 3.0f) + cp1_offset;
+                Vector3 p2 = p0 + (delta * 2.0f / 3.0f) + cp2_offset;
+                p1.x = Math::clamp(p1.x, 0.0f, max_x); p1.y = Math::clamp(p1.y, 0.0f, max_y); p1.z = Math::clamp(p1.z, 0.0f, max_z);
+                p2.x = Math::clamp(p2.x, 0.0f, max_x); p2.y = Math::clamp(p2.y, 0.0f, max_y); p2.z = Math::clamp(p2.z, 0.0f, max_z);
+                int num_steps = static_cast<int>(delta.length());
+                if (num_steps < 10) num_steps = 10;
+                for (int k = 0; k <= num_steps; ++k) {
+                    float t = static_cast<float>(k) / static_cast<float>(num_steps);
+                    float one_minus_t = 1.0f - t; float t2 = t * t; float t3 = t2 * t; float omt2 = one_minus_t * one_minus_t; float omt3 = omt2 * one_minus_t;
+                    Vector3 point_on_curve = (p0 * omt3) + (p1 * 3.0f * omt2 * t) + (p2 * 3.0f * one_minus_t * t2) + (p3 * t3);
+                    Vector3 final_point = point_on_curve;
+                    if (path_wobble_magnitude > 0.001f) {
+                        final_point.x += noise_generator->get_noise_1d(point_on_curve.x * path_wobble_frequency) * path_wobble_magnitude;
+                        final_point.y += noise_generator->get_noise_1d(point_on_curve.y * path_wobble_frequency + 1000.0f) * path_wobble_magnitude;
+                        final_point.z += noise_generator->get_noise_1d(point_on_curve.z * path_wobble_frequency + 2000.0f) * path_wobble_magnitude;
+                    }
+                    _mark_brush(Vector3i(final_point), path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+                }
+            }
+        }
+    }
+
+    // --- 3. Calculate Spawn and End Positions ---
+    if (generated_rooms.size() > 0) {
+        Dictionary first_room = generated_rooms[0];
+        Dictionary last_room = generated_rooms[generated_rooms.size() - 1];
+        Vector3i start_room_start = first_room["start"];
+        Vector3i start_room_end = first_room["end"];
+        Vector3i start_spawn_midpoint = start_room_start + (start_room_end - start_room_start) / 2;
+        Vector3i spawn_cell = _find_ground_position(start_spawn_midpoint);
+        calculated_spawn_position = (Vector3(spawn_cell) + Vector3(0.5f, 0.5f, 0.5f)) * voxel_size;
+        Vector3i end_room_start = last_room["start"];
+        Vector3i end_room_end = last_room["end"];
+        Vector3i end_room_midpoint = end_room_start + (end_room_end - end_room_start) / 2;
+        Vector3i end_cell = _find_ground_position(end_room_midpoint);
+        calculated_end_position = (Vector3(end_cell) + Vector3(0.5f, 0.5f, 0.5f)) * voxel_size;
+    }
+    UtilityFunctions::print("Room and Path generation finished.");
+}
+
+
+void LevelDensityGrid::_apply_noise() {
+     if (get_grid_size_x() <= 0) {
+        UtilityFunctions::printerr("LevelDensityGrid._apply_noise: Grid not initialized.");
+        return;
+    }
+     if (!noise_generator.is_valid()) {
+        UtilityFunctions::printerr("LevelDensityGrid._apply_noise: Noise generator is not valid.");
+        return;
+    }
+    UtilityFunctions::print("Applying noise... Scale: ", noise_scale, ", Intensity: ", noise_intensity);
+    noise_generator->set_seed(noise_seed);
+    noise_generator->set_frequency(noise_frequency);
+    float inv_noise_scale = 0.0;
+    if (noise_scale > 0.0001) {
+        inv_noise_scale = 1.0 / noise_scale;
+    } else {
+        inv_noise_scale = 1.0;
+    }
+    int gsx = get_grid_size_x();
+    int gsy = get_grid_size_y();
+    int gsz = get_grid_size_z();
+    float surf_thresh = get_surface_threshold();
+    for (int z = 0; z < gsz; ++z) {
+        for (int y = 0; y < gsy; ++y) {
+            for (int x = 0; x < gsx; ++x) {
+                Vector3i pos(x, y, z);
+                float noise_val = noise_generator->get_noise_3d(static_cast<double>(x) * inv_noise_scale, static_cast<double>(y) * inv_noise_scale, static_cast<double>(z) * inv_noise_scale);
+                float current_cell_value = get_cell(pos, WORLD_SOLID_VALUE);
+                float new_density;
+                if (current_cell_value < surf_thresh) {
+                    float carving_noise = Math::min(noise_val, 0.0f);
+                    new_density = current_cell_value + carving_noise * noise_intensity;
+                } else {
+                    new_density = current_cell_value + noise_val * noise_intensity;
+                }
+                set_cell(pos, new_density);
+            }
+        }
+    }
+    UtilityFunctions::print("Noise application finished.");
+}
+
+
+void LevelDensityGrid::_mark_brush(const Vector3i &center, int radius_lower, int radius_higher, float value) {
+     if (!rng.is_valid()) {
+         UtilityFunctions::printerr("LevelDensityGrid._mark_brush: RNG not valid.");
+         return;
+     }
+     int r_low = radius_lower;
+     int r_high = radius_higher;
+     if (r_high < r_low) r_high = r_low;
+     if (r_low < 0) r_low = 0;
+
+     int radius = (r_low == r_high) ? r_low : rng->randi_range(r_low, r_high);
+     if (radius <= 0) return;
+
+     int radius_sq = radius * radius;
+
+    for (int i = -radius; i <= radius; ++i) {
+        for (int j = -radius; j <= radius; ++j) {
+            for (int k = -radius; k <= radius; ++k) {
+                bool in_shape = false;
+                if (use_square_brush) {
+                    in_shape = true; // For a square brush, everything in the bounding box is inside.
+                } else {
+                    if (i * i + j * j + k * k < radius_sq) {
+                        in_shape = true; // For a round brush, check the sphere equation.
+                    }
+                }
+
+                if (in_shape) {
+                    Vector3i current_pos = center + Vector3i(i, j, k);
+                    if (current_pos.y > 0) { // Prevent modifying the bottom layer.
+                        set_cell(current_pos, value);
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+void LevelDensityGrid::_create_room(const Dictionary &room) {
+     if (!room.has("start") || !room.has("end")) return;
+     Vector3i start = room["start"];
+     Vector3i end = room["end"];
+    Vector3i min_corner(Math::min(start.x, end.x), Math::min(start.y, end.y), Math::min(start.z, end.z));
+    Vector3i max_corner(Math::max(start.x, end.x), Math::max(start.y, end.y), Math::max(start.z, end.z));
+    for (int x = min_corner.x; x < max_corner.x; ++x) {
+        for (int y = Math::max(min_corner.y, 1); y < max_corner.y; ++y) {
+            for (int z = min_corner.z; z < max_corner.z; ++z) {
+                set_cell(Vector3i(x, y, z), WORLD_OPEN_VALUE);
+            }
+        }
+    }
+}
+
+
+Dictionary LevelDensityGrid::_pick_room() {
+    int gsx = get_grid_size_x();
+    int gsy = get_grid_size_y();
+    int gsz = get_grid_size_z();
+    if (gsx <= 2 || gsy <= 2 || gsz <= 2) return Dictionary();
+    if (!rng.is_valid()){
+        UtilityFunctions::printerr("LevelDensityGrid._pick_room: RNG not valid.");
+        return Dictionary();
+    }
+    Vector3i valid_min_room_size(Math::clamp(min_room_size.x, 1, gsx - 2), Math::clamp(min_room_size.y, 1, gsy - 2), Math::clamp(min_room_size.z, 1, gsz - 2));
+    Vector3i valid_max_room_size(Math::clamp(max_room_size.x, valid_min_room_size.x, gsx - 2), Math::clamp(max_room_size.y, valid_min_room_size.y, gsy - 2), Math::clamp(max_room_size.z, valid_min_room_size.z, gsz - 2));
+    if (valid_min_room_size.x > valid_max_room_size.x || valid_min_room_size.y > valid_max_room_size.y || valid_min_room_size.z > valid_max_room_size.z) {
+        UtilityFunctions::printerr("LevelDensityGrid._pick_room: MinRoomSize (", valid_min_room_size, ") > MaxRoomSize (", valid_max_room_size, ") after clamping to grid.");
+        return Dictionary();
+    }
+    int size_x = (valid_min_room_size.x == valid_max_room_size.x) ? valid_min_room_size.x : rng->randi_range(valid_min_room_size.x, valid_max_room_size.x);
+    int size_y = (valid_min_room_size.y == valid_max_room_size.y) ? valid_min_room_size.y : rng->randi_range(valid_min_room_size.y, valid_max_room_size.y);
+    int size_z = (valid_min_room_size.z == valid_max_room_size.z) ? valid_min_room_size.z : rng->randi_range(valid_min_room_size.z, valid_max_room_size.z);
+    int max_start_x = gsx - size_x - 1;
+    int max_start_y = gsy - size_y - 1;
+    int max_start_z = gsz - size_z - 1;
+    if (max_start_x < 1 || max_start_y < 1 || max_start_z < 1) {
+        return Dictionary();
+    }
+    Vector3i start(rng->randi_range(1, max_start_x), rng->randi_range(1, max_start_y), rng->randi_range(1, max_start_z));
+    Vector3i end = start + Vector3i(size_x, size_y, size_z);
+    Dictionary room_data;
+    room_data["start"] = start;
+    room_data["end"] = end;
+    return room_data;
+}
+
+
+bool LevelDensityGrid::_check_overlap(const Dictionary &new_room, const TypedArray<Dictionary> &generated_rooms) {
+     if (new_room.is_empty() || !new_room.has("start") || !new_room.has("end")) {
+        UtilityFunctions::printerr("_check_overlap: Received invalid new_room.");
+        return true;
+    }
+    Vector3i new_start = new_room["start"];
+    Vector3i new_end = new_room["end"];
+    for (int i = 0; i < generated_rooms.size(); ++i) {
+        Dictionary existing_room = generated_rooms[i];
+        if (existing_room.is_empty() || !existing_room.has("start") || !existing_room.has("end")) continue;
+        Vector3i existing_start = existing_room["start"];
+        Vector3i existing_end = existing_room["end"];
+        bool overlap_x = new_start.x < existing_end.x && new_end.x > existing_start.x;
+        bool overlap_y = new_start.y < existing_end.y && new_end.y > existing_start.y;
+        bool overlap_z = new_start.z < existing_end.z && new_end.z > existing_start.z;
+        if (overlap_x && overlap_y && overlap_z) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+Vector3i LevelDensityGrid::_find_ground_position(const Vector3i &start_pos) {
+    int gsx = get_grid_size_x();
+    int gsy = get_grid_size_y();
+    int gsz = get_grid_size_z();
+    float surf_thresh = get_surface_threshold();
+    Vector3i clamped_start_pos(Math::clamp(start_pos.x, 0, gsx - 1), Math::clamp(start_pos.y, 0, gsy - 1), Math::clamp(start_pos.z, 0, gsz - 1));
+    for (int y = clamped_start_pos.y; y >= 0; --y) {
+        Vector3i check_pos(clamped_start_pos.x, y, clamped_start_pos.z);
+        if (get_cell(check_pos, WORLD_SOLID_VALUE) >= surf_thresh) {
+            int ground_surface_y = y + 1;
+            ground_surface_y = Math::min(ground_surface_y, gsy - 1);
+            return Vector3i(clamped_start_pos.x, ground_surface_y, clamped_start_pos.z);
+        }
+    }
+    return Vector3i(clamped_start_pos.x, 0, clamped_start_pos.z);
+}
+
+void LevelDensityGrid::_carve_dungeon_path(const Vector3 &start, const Vector3 &end) {
+    Vector3i p_start = Vector3i(start);
+    Vector3i p_end = Vector3i(end);
+    Vector3i corner1, corner2;
+    if (rng->randf() > 0.5f) {
+        corner1 = Vector3i(p_end.x, p_start.y, p_start.z);
+        corner2 = Vector3i(p_end.x, p_start.y, p_end.z);
+    } else {
+        corner1 = Vector3i(p_start.x, p_start.y, p_end.z);
+        corner2 = Vector3i(p_end.x, p_start.y, p_end.z);
+    }
+    _carve_line(p_start, corner1);
+    _carve_line(corner1, corner2);
+    _carve_staircase(corner2, p_end, corner1);
+}
+
+void LevelDensityGrid::_carve_line(const Vector3i &from, const Vector3i &to) {
+    Vector3i current = from;
+    Vector3i delta = to - from;
+    Vector3i dir(
+        (delta.x == 0) ? 0 : static_cast<int>(Math::sign(delta.x)),
+        (delta.y == 0) ? 0 : static_cast<int>(Math::sign(delta.y)),
+        (delta.z == 0) ? 0 : static_cast<int>(Math::sign(delta.z))
+    );
+    _mark_brush(current, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+    while (current != to) {
+        current += dir;
+        _mark_brush(current, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+    }
+}
+
+void LevelDensityGrid::_carve_staircase(const Vector3i &bottom, const Vector3i &top, const Vector3i &prev_corner) {
+    if (bottom.y == top.y) return;
+    Vector3i current = bottom;
+    int y_dir = (top.y > bottom.y) ? 1 : -1;
+    Vector3i approach_vec = bottom - prev_corner;
+    Vector3i step_dir(0, 0, 0);
+    if (approach_vec.x == 0 && approach_vec.z == 0) {
+        step_dir.z = -1;
+    } else if (abs(approach_vec.x) > abs(approach_vec.z)) {
+        step_dir.x = -static_cast<int>(Math::sign(approach_vec.x));
+    } else {
+        step_dir.z = -static_cast<int>(Math::sign(approach_vec.z));
+    }
+    _mark_brush(current, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+    _mark_brush(current + Vector3i(0, 1, 0), path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+    while (current.y != top.y) {
+        current += step_dir;
+        current.y += y_dir;
+        _mark_brush(current, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+        _mark_brush(current + Vector3i(0, 1, 0), path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+    }
+    _mark_brush(top, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+    _mark_brush(top + Vector3i(0, 1, 0), path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+}
+
+void LevelDensityGrid::low_pass() {
+    int smoothing = smoothing_strength;
+    int gsx = get_grid_size_x();
+    int gsy = get_grid_size_y();
+    int gsz = get_grid_size_z();
+    int required_size = smoothing * 2 + 1;
+    if (gsx < required_size || gsy < required_size || gsz < required_size) {
+        UtilityFunctions::printerr("LevelDensityGrid.low_pass: Grid is too small for the given smoothing strength. Grid: (", get_grid_dimensions(), "), Required: ", required_size);
+        return;
+    }
+    std::vector<float> smoothed_grid;
+    size_t grid_total_size = (size_t)gsx * gsy * gsz;
+    if (grid_total_size == 0) {
+         UtilityFunctions::printerr("LevelDensityGrid.low_pass: Failed to get grid size.");
+         return;
+    }
+    smoothed_grid.resize(grid_total_size);
+    for (int z = smoothing; z < gsz - smoothing; ++z) {
+        for (int y = smoothing; y < gsy - smoothing; ++y) {
+            for (int x = smoothing; x < gsx - smoothing; ++x) {
+                Vector3i current_pos(x, y, z);
+                float sum = 0.0f;
+                int count = 0;
+                for (int dz = -smoothing; dz <= smoothing; ++dz) {
+                    for (int dy = -smoothing; dy <= smoothing; ++dy) {
+                        for (int dx = -smoothing; dx <= smoothing; ++dx) {
+                            Vector3i neighbor_pos = current_pos + Vector3i(dx, dy, dz);
+                            sum += get_cell(neighbor_pos, WORLD_SOLID_VALUE);
+                            count++;
+                        }
+                    }
+                }
+                float average = (count > 0) ? sum / count : get_cell(current_pos, WORLD_SOLID_VALUE);
+                int index = get_index(current_pos);
+                 if (index != -1) {
+                    smoothed_grid[index] = average;
+                 } else {
+                     UtilityFunctions::printerr("LevelDensityGrid.low_pass: Invalid index calculated for ", current_pos);
+                 }
+            }
+        }
+    }
+    for (int z = smoothing; z < gsz - smoothing; ++z) {
+        for (int y = smoothing; y < gsy - smoothing; ++y) {
+            for (int x = smoothing; x < gsx - smoothing; ++x) {
+                Vector3i pos(x, y, z);
+                int index = get_index(pos);
+                 if (index != -1) {
+                     set_cell(pos, smoothed_grid[index]);
+                 }
+            }
+        }
+    }
+}
+
+
+// --- Property Getters/Setters Implementation ---
+
+Vector3 LevelDensityGrid::get_calculated_spawn_position() const { return calculated_spawn_position; }
+Vector3 LevelDensityGrid::get_calculated_end_position() const { return calculated_end_position; }
+
+void LevelDensityGrid::set_noise_scale(float p_scale) { noise_scale = p_scale; }
+float LevelDensityGrid::get_noise_scale() const { return noise_scale; }
+
+void LevelDensityGrid::set_noise_intensity(float p_intensity) { noise_intensity = p_intensity; }
+float LevelDensityGrid::get_noise_intensity() const { return noise_intensity; }
+
+void LevelDensityGrid::set_noise_seed(int p_seed) {
+    noise_seed = p_seed;
+    if (noise_generator.is_valid()) {
+        noise_generator->set_seed(noise_seed);
+    }
+}
+int LevelDensityGrid::get_noise_seed() const { return noise_seed; }
+
+void LevelDensityGrid::set_noise_frequency(float p_freq) {
+    noise_frequency = p_freq;
+     if (noise_generator.is_valid()) {
+        noise_generator->set_frequency(noise_frequency);
+    }
+}
+float LevelDensityGrid::get_noise_frequency() const { return noise_frequency; }
+
+void LevelDensityGrid::set_room_count(int p_count) { room_count = p_count > 0 ? p_count : 0; }
+int LevelDensityGrid::get_room_count() const { return room_count; }
+
+void LevelDensityGrid::set_min_room_size(const Vector3i &p_size) { min_room_size = p_size; }
+Vector3i LevelDensityGrid::get_min_room_size() const { return min_room_size; }
+
+void LevelDensityGrid::set_max_room_size(const Vector3i &p_size) { max_room_size = p_size; }
+Vector3i LevelDensityGrid::get_max_room_size() const { return max_room_size; }
+
+void LevelDensityGrid::set_max_placement_tries(int p_tries) { max_placement_tries = p_tries > 0 ? p_tries : 1; }
+int LevelDensityGrid::get_max_placement_tries() const { return max_placement_tries; }
+
+void LevelDensityGrid::set_path_brush_min_radius(int p_radius) { path_brush_min_radius = p_radius >= 0 ? p_radius : 0; }
+int LevelDensityGrid::get_path_brush_min_radius() const { return path_brush_min_radius; }
+
+void LevelDensityGrid::set_path_brush_max_radius(int p_radius) { path_brush_max_radius = p_radius >= 0 ? p_radius : 0; }
+int LevelDensityGrid::get_path_brush_max_radius() const { return path_brush_max_radius; }
+
+void LevelDensityGrid::set_use_square_brush(bool p_enabled) { use_square_brush = p_enabled; }
+bool LevelDensityGrid::get_use_square_brush() const { return use_square_brush; }
+
+void LevelDensityGrid::set_vertical_movement_cost_multiplier(float p_mult) { vertical_movement_cost_multiplier = p_mult > 0 ? p_mult : 1.0; }
+float LevelDensityGrid::get_vertical_movement_cost_multiplier() const { return vertical_movement_cost_multiplier; }
+
+void LevelDensityGrid::set_dungeon_mode(bool p_enabled) { dungeon_mode = p_enabled; }
+bool LevelDensityGrid::get_dungeon_mode() const { return dungeon_mode; }
+
+void LevelDensityGrid::set_path_segments(int p_segments) { path_segments = p_segments > 0 ? p_segments : 1; }
+int LevelDensityGrid::get_path_segments() const { return path_segments; }
+
+void LevelDensityGrid::set_path_bend_factor(float p_factor) { path_bend_factor = p_factor >= 0.0f ? p_factor : 0.0f; }
+float LevelDensityGrid::get_path_bend_factor() const { return path_bend_factor; }
+
+void LevelDensityGrid::set_path_wobble_magnitude(float p_magnitude) { path_wobble_magnitude = p_magnitude >= 0.0f ? p_magnitude : 0.0f; }
+float LevelDensityGrid::get_path_wobble_magnitude() const { return path_wobble_magnitude; }
+
+void LevelDensityGrid::set_path_wobble_frequency(float p_frequency) { path_wobble_frequency = p_frequency; }
+float LevelDensityGrid::get_path_wobble_frequency() const { return path_wobble_frequency; }
+
+void LevelDensityGrid::set_connect_from_ground_level(bool p_enabled) { connect_from_ground_level = p_enabled; }
+bool LevelDensityGrid::get_connect_from_ground_level() const { return connect_from_ground_level; }
+
+void LevelDensityGrid::set_smooth_terrain(bool p_enabled) { smooth_terrain = p_enabled; }
+bool LevelDensityGrid::get_smooth_terrain() const { return smooth_terrain; }
+
+void LevelDensityGrid::set_smoothing_strength(int p_strength) { smoothing_strength = p_strength > 0 ? p_strength : 1; }
+int LevelDensityGrid::get_smoothing_strength() const { return smoothing_strength; }
+
+void LevelDensityGrid::set_noise_generator(const Ref<FastNoiseLite> &p_noise) {
+    noise_generator = p_noise;
+    if (noise_generator.is_valid()) {
+        noise_generator->set_seed(noise_seed);
+        noise_generator->set_frequency(noise_frequency);
+    }
+}
+Ref<FastNoiseLite> LevelDensityGrid::get_noise_generator() const { return noise_generator; }
+
+} // namespace godot

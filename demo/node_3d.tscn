@@ -1,0 +1,53 @@
+[gd_scene load_steps=9 format=3 uid="uid://dppj1tsg2ty65"]
+
+[ext_resource type="Script" uid="uid://pd2qii0vaado" path="res://scripts/generation/mc_world.gd" id="1_a202f"]
+[ext_resource type="Material" uid="uid://cll8gpvrd2o3r" path="res://blend_shader_mat.tres" id="3_a0tk4"]
+[ext_resource type="Script" uid="uid://8vyuhyx0xogt" path="res://addons/freecam_3D/freecam.gd" id="4_r3fl7"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_a0tk4"]
+
+[sub_resource type="Sky" id="Sky_r3fl7"]
+sky_material = SubResource("ProceduralSkyMaterial_a0tk4")
+
+[sub_resource type="Environment" id="Environment_jka67"]
+background_mode = 2
+sky = SubResource("Sky_r3fl7")
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_a0tk4"]
+noise_type = 3
+seed = 1337
+frequency = 0.02
+
+[sub_resource type="LevelDensityGrid" id="LevelDensityGrid_r3fl7"]
+noise_generator = SubResource("FastNoiseLite_a0tk4")
+room_min_size = Vector3i(15, 10, 15)
+room_max_size = Vector3i(30, 20, 30)
+path_brush_min_radius = 6
+path_brush_max_radius = 8
+path_bend_factor = 2.0
+path_wobble_magnitude = 0.1
+path_wobble_frequency = 1.0
+
+[node name="Node3D" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_jka67")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.694533, 0.719461, 0, -0.719461, 0.694533, 0, 0, 0)
+visible = false
+
+[node name="Camera3D" type="Camera3D" parent="."]
+script = ExtResource("4_r3fl7")
+
+[node name="MCWorld" type="Node3D" parent="."]
+script = ExtResource("1_a202f")
+world_size_x_in_chunks = 4
+world_size_y_in_chunks = 3
+world_size_z_in_chunks = 4
+voxel_size = 32.0
+density_grid_instance = SubResource("LevelDensityGrid_r3fl7")
+terrain_material = ExtResource("3_a0tk4")
+metadata/_custom_type_script = "uid://pd2qii0vaado"
+
+[node name="ChunkContainer" type="Node3D" parent="MCWorld"]

@@ -1,0 +1,20 @@
+[gd_scene load_steps=4 format=3 uid="uid://d2betj6ess62k"]
+
+[ext_resource type="Script" uid="uid://pd2qii0vaado" path="res://scripts/generation/mc_world.gd" id="1_toack"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_toack"]
+noise_type = 3
+seed = 1337
+frequency = 0.02
+
+[sub_resource type="LevelDensityGrid" id="LevelDensityGrid_4vhcx"]
+noise_generator = SubResource("FastNoiseLite_toack")
+
+[node name="Node3D" type="Node3D"]
+
+[node name="MCWorld" type="Node3D" parent="."]
+script = ExtResource("1_toack")
+density_grid_instance = SubResource("LevelDensityGrid_4vhcx")
+metadata/_custom_type_script = "uid://pd2qii0vaado"
+
+[node name="ChunkContainer" type="Node3D" parent="MCWorld"]

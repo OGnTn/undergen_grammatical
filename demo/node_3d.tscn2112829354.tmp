@@ -1,0 +1,59 @@
+[gd_scene load_steps=9 format=3 uid="uid://dppj1tsg2ty65"]
+
+[ext_resource type="Script" uid="uid://pd2qii0vaado" path="res://scripts/generation/mc_world.gd" id="1_a202f"]
+[ext_resource type="Script" uid="uid://c4ljjh247oxnn" path="res://scripts/generation/level_density_grid.gd" id="2_noarx"]
+[ext_resource type="Material" path="res://blend_shader_mat.tres" id="3_a0tk4"]
+[ext_resource type="Script" uid="uid://8vyuhyx0xogt" path="res://addons/freecam_3D/freecam.gd" id="4_r3fl7"]
+
+[sub_resource type="Resource" id="Resource_a0tk4"]
+script = ExtResource("2_noarx")
+noise_scale = 50.0
+noise_intensity = 0.5
+noise_seed = 1337
+noise_frequency = 0.02
+room_count = 10
+min_room_size = Vector3i(5, 5, 3)
+max_room_size = Vector3i(15, 15, 8)
+max_placement_tries = 5000
+path_brush_min_radius = 2
+path_brush_max_radius = 4
+vertical_movement_cost_multiplier = 2.0
+world_density_grid = null
+grid_size_x = 4
+grid_size_y = 4
+grid_size_z = 4
+surface_threshold = 0.0
+metadata/_custom_type_script = "uid://c4ljjh247oxnn"
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_a0tk4"]
+
+[sub_resource type="Sky" id="Sky_r3fl7"]
+sky_material = SubResource("ProceduralSkyMaterial_a0tk4")
+
+[sub_resource type="Environment" id="Environment_jka67"]
+background_mode = 2
+sky = SubResource("Sky_r3fl7")
+
+[node name="Node3D" type="Node3D"]
+
+[node name="MCWorld" type="Node3D" parent="."]
+script = ExtResource("1_a202f")
+world_size_x_in_chunks = null
+world_size_y_in_chunks = null
+world_size_z_in_chunks = 2
+chunk_size = null
+voxel_size = null
+density_grid_instance = SubResource("Resource_a0tk4")
+terrain_material = ExtResource("3_a0tk4")
+metadata/_custom_type_script = "uid://pd2qii0vaado"
+
+[node name="ChunkContainer" type="Node3D" parent="MCWorld"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_jka67")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.694533, 0.719461, 0, -0.719461, 0.694533, 0, 0, 0)
+
+[node name="Camera3D" type="Camera3D" parent="."]
+script = ExtResource("4_r3fl7")

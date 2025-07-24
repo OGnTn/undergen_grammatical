@@ -1,0 +1,13 @@
+; undergen.gdextension
+; Make sure the paths in library_paths match your SConstruct output
+
+[configuration]
+
+entry_symbol = "gdextension_entry_point"
+compatibility_minimum = "4.3" ; Adjust if needed for 4.4 features
+
+[libraries]
+
+; Update these paths based on your exact platform and build target (debug/release)
+windows.debug.x86_64 = "res://bin/undergen.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://bin/undergen.windows.template_release.x86_64.dll"
