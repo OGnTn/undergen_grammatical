@@ -1,3 +1,4 @@
+// level_density_grid.cpp
 #include "level_density_grid.h"
 
 #include <godot_cpp/core/class_db.hpp>
@@ -30,7 +31,7 @@ LevelDensityGrid::~LevelDensityGrid() {
 
 void LevelDensityGrid::_bind_methods() {
     // --- Main Generation Function ---
-    ClassDB::bind_method(D_METHOD("generate_level_data", "world_grid_dimensions", "voxel_size"), &LevelDensityGrid::generate_level_data);
+    ClassDB::bind_method(D_METHOD("generate_level_data", "world_grid_dimensions", "voxel_size", "seed"), &LevelDensityGrid::generate_level_data);
 
     // --- Getters for Runtime Data ---
     ClassDB::bind_method(D_METHOD("get_calculated_spawn_position"), &LevelDensityGrid::get_calculated_spawn_position);
@@ -142,34 +143,36 @@ void LevelDensityGrid::_bind_methods() {
 }
 
 // --- Main Generation Function ---
-void LevelDensityGrid::generate_level_data(const Vector3i &world_grid_dimensions, float voxel_size) {
+void LevelDensityGrid::generate_level_data(const Vector3i &world_grid_dimensions, float voxel_size, int64_t seed) {
     if (world_grid_dimensions.x <= 0 || world_grid_dimensions.y <= 0 || world_grid_dimensions.z <= 0) {
         UtilityFunctions::printerr("LevelDensityGrid.generate_level_data: Invalid World Grid Dimensions ", world_grid_dimensions);
         return;
     }
 
-    UtilityFunctions::print("Generating Level Data for Grid Size: ", world_grid_dimensions);
+    UtilityFunctions::print("Generating Level Data for Grid Size: ", world_grid_dimensions, " with seed: ", seed);
 
-    // 1. Initialize Grid - Make it solid initially
-    initialize_grid(world_grid_dimensions.x, world_grid_dimensions.y, world_grid_dimensions.z, WORLD_SOLID_VALUE);
-
-    // Ensure RNG is ready
+    // 1. Seed the generators for deterministic output
+    set_noise_seed(seed); // This uses the existing setter, which takes an int. The cast is acceptable.
+    // Ensure RNG is ready and seeded
     if (!rng.is_valid()) {
         rng.instantiate();
-        rng->randomize();
-         UtilityFunctions::printerr("LevelDensityGrid: RNG was invalid, re-initialized.");
+        UtilityFunctions::printerr("LevelDensityGrid: RNG was invalid, re-initialized.");
     }
+    rng->set_seed(seed); // Set the seed for the RandomNumberGenerator
 
-    // 2. Generate Rooms and Paths
+    // 2. Initialize Grid - Make it solid initially
+    initialize_grid(world_grid_dimensions.x, world_grid_dimensions.y, world_grid_dimensions.z, WORLD_SOLID_VALUE);
+
+    // 3. Generate Rooms and Paths
     _generate_rooms_and_paths(voxel_size);
 
-    // 3. Optional Smoothing
+    // 4. Optional Smoothing
     if (smooth_terrain && !use_square_brush) { // Smoothing doesn't make sense for square corridors
         UtilityFunctions::print("Smoothing terrain with strength: ", smoothing_strength);
         low_pass();
     }
 
-    // 4. Calculate Surface Normals
+    // 5. Calculate Surface Normals
     _calculate_surface_normals();
 
     UtilityFunctions::print("Level Data Generation Complete. Spawn: ", calculated_spawn_position, ", End: ", calculated_end_position);

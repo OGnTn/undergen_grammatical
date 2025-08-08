@@ -1,4 +1,4 @@
-// src/level_density_grid.h
+// level_density_grid.h
 #ifndef LEVEL_DENSITY_GRID_H
 #define LEVEL_DENSITY_GRID_H
 
@@ -90,7 +90,7 @@ public:
     ~LevelDensityGrid();
 
     // --- Main Generation Function ---
-    void generate_level_data(const Vector3i &world_grid_dimensions, float voxel_size);
+    void generate_level_data(const Vector3i &world_grid_dimensions, float voxel_size, int64_t seed);
 
     // --- Getters for Runtime Data ---
     Vector3 get_calculated_spawn_position() const;
