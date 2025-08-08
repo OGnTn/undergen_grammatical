@@ -35,8 +35,10 @@ void LevelDensityGrid::_bind_methods() {
     // --- Getters for Runtime Data ---
     ClassDB::bind_method(D_METHOD("get_calculated_spawn_position"), &LevelDensityGrid::get_calculated_spawn_position);
     ClassDB::bind_method(D_METHOD("get_calculated_end_position"), &LevelDensityGrid::get_calculated_end_position);
+    ClassDB::bind_method(D_METHOD("get_surface_normals"), &LevelDensityGrid::get_surface_normals);
     ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "calculated_spawn_position", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_READ_ONLY), "", "get_calculated_spawn_position");
     ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "calculated_end_position", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_READ_ONLY), "", "get_calculated_end_position");
+    ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "surface_normals", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_READ_ONLY), "", "get_surface_normals");
 
 
     // --- Property Getters/Setters ---
@@ -167,10 +169,76 @@ void LevelDensityGrid::generate_level_data(const Vector3i &world_grid_dimensions
         low_pass();
     }
 
+    // 4. Calculate Surface Normals
+    _calculate_surface_normals();
+
     UtilityFunctions::print("Level Data Generation Complete. Spawn: ", calculated_spawn_position, ", End: ", calculated_end_position);
 }
 
 // --- Internal Helper Functions ---
+
+void LevelDensityGrid::_calculate_surface_normals() {
+    surface_normals.clear();
+    int gsx = get_grid_size_x();
+    int gsy = get_grid_size_y();
+    int gsz = get_grid_size_z();
+    float surf_thresh = get_surface_threshold();
+
+    UtilityFunctions::print("Calculating surface normals...");
+
+    for (int x = 0; x < gsx; ++x) {
+        for (int y = 0; y < gsy; ++y) {
+            for (int z = 0; z < gsz; ++z) {
+                Vector3i current_pos(x, y, z);
+                if (get_cell(current_pos, WORLD_SOLID_VALUE) > surf_thresh) {
+                    bool is_surface = false;
+                    Vector3 gradient;
+
+                    // Check X neighbors
+                    if (x > 0) {
+                        float left = get_cell(Vector3i(x - 1, y, z), WORLD_SOLID_VALUE);
+                        if (left < surf_thresh) is_surface = true;
+                        gradient.x -= Math::round(left);
+                    }
+                    if (x < gsx - 1) {
+                        float right = get_cell(Vector3i(x + 1, y, z), WORLD_SOLID_VALUE);
+                        if (right < surf_thresh) is_surface = true;
+                        gradient.x += Math::round(right);
+                    }
+                    // Check Y neighbors
+                    if (y > 0) {
+                        float down = get_cell(Vector3i(x, y - 1, z), WORLD_SOLID_VALUE);
+                        if (down < surf_thresh) is_surface = true;
+                        gradient.y -= Math::round(down);
+                    }
+                    if (y < gsy - 1) {
+                        float up = get_cell(Vector3i(x, y + 1, z), WORLD_SOLID_VALUE);
+                        if (up < surf_thresh) is_surface = true;
+                        gradient.y += Math::round(up);
+                    }
+                    // Check Z neighbors
+                    if (z > 0) {
+                        float back = get_cell(Vector3i(x, y, z - 1), WORLD_SOLID_VALUE);
+                        if (back < surf_thresh) is_surface = true;
+                        gradient.z -= Math::round(back);
+                    }
+                    if (z < gsz - 1) {
+                        float front = get_cell(Vector3i(x, y, z + 1), WORLD_SOLID_VALUE);
+                        if (front < surf_thresh) is_surface = true;
+                        gradient.z += Math::round(front);
+                    }
+
+                    if (is_surface) {
+                        Vector3 normal = gradient.normalized();
+                        surface_normals[current_pos] = -normal;
+                    }
+                }
+            }
+        }
+    }
+    UtilityFunctions::print("Finished calculating surface normals. Found ", surface_normals.size(), " surface points.");
+}
+
 
 void LevelDensityGrid::_generate_rooms_and_paths(float voxel_size) {
     if (get_grid_size_x() <= 0) {
@@ -635,6 +703,7 @@ void LevelDensityGrid::low_pass() {
 
 Vector3 LevelDensityGrid::get_calculated_spawn_position() const { return calculated_spawn_position; }
 Vector3 LevelDensityGrid::get_calculated_end_position() const { return calculated_end_position; }
+Dictionary LevelDensityGrid::get_surface_normals() const { return surface_normals; }
 
 void LevelDensityGrid::set_noise_scale(float p_scale) { noise_scale = p_scale; }
 float LevelDensityGrid::get_noise_scale() const { return noise_scale; }

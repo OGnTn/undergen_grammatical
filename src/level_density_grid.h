@@ -59,6 +59,7 @@ private:
     // --- Runtime Data ---
     Vector3 calculated_spawn_position = Vector3(0, 0, 0);
     Vector3 calculated_end_position = Vector3(0, 0, 0);
+    Dictionary surface_normals;
 
     // --- Noise Generator ---
     Ref<FastNoiseLite> noise_generator;
@@ -74,6 +75,7 @@ private:
     void _create_room(const Dictionary &room);
     Dictionary _pick_room(); // Returns Dictionary (empty if failed)
     bool _check_overlap(const Dictionary &new_room, const TypedArray<Dictionary> &generated_rooms);
+    void _calculate_surface_normals();
     // Helpers for Dungeon Mode
     void _carve_dungeon_path(const Vector3 &start, const Vector3 &end);
     void _carve_line(const Vector3i &from, const Vector3i &to);
@@ -93,6 +95,7 @@ public:
     // --- Getters for Runtime Data ---
     Vector3 get_calculated_spawn_position() const;
 	Vector3 get_calculated_end_position() const;
+    Dictionary get_surface_normals() const;
 
     // --- Property Getters/Setters ---
     Vector3i _find_ground_position(const Vector3i &start_pos);
