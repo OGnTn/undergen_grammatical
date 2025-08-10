@@ -9,6 +9,8 @@
 #include <map>    // For std::map (alternative to Dictionary for vertex cache)
 #include <godot_cpp/classes/static_body3d.hpp> // Added for collision body
 #include <godot_cpp/classes/array_mesh.hpp> // Added for ArrayMesh type
+#include <godot_cpp/classes/occluder_instance3d.hpp> // For occluder node
+#include <godot_cpp/classes/array_occluder3d.hpp>   // For occluder shape
 
 namespace godot {
 
@@ -22,6 +24,7 @@ MCChunk::MCChunk() {
 MCChunk::~MCChunk() {
     // Destructor logic if needed
     _clear_collision(); // Ensure collision is cleaned up on destruction
+    _clear_occluder();  // Ensure occluder is cleaned up on destruction
 }
 
 void MCChunk::_notification(int p_what) {
@@ -62,10 +65,16 @@ void MCChunk::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_generate_collision", "enable"), &MCChunk::set_generate_collision);
     ClassDB::bind_method(D_METHOD("get_generate_collision"), &MCChunk::get_generate_collision);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_collision"), "set_generate_collision", "get_generate_collision");
+
+    // Bind new occluder property
+    ClassDB::bind_method(D_METHOD("set_generate_occluder", "enable"), &MCChunk::set_generate_occluder);
+    ClassDB::bind_method(D_METHOD("get_generate_occluder"), &MCChunk::get_generate_occluder);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_occluder"), "set_generate_occluder", "get_generate_occluder");
 }
 
 void MCChunk::generate_mesh_from_density_grid() {
     _clear_collision(); // Clear any existing collision shapes
+    _clear_occluder();  // Clear any existing occluder nodes
 
     if (!density_grid.is_valid()) {
         UtilityFunctions::printerr("MCChunk.generate_mesh_from_density_grid: DensityGrid is null! Cannot generate mesh for chunk at offset ", chunk_grid_offset, ".");
@@ -84,7 +93,7 @@ void MCChunk::generate_mesh_from_density_grid() {
         return;
     }
 
-    UtilityFunctions::print("Generating mesh for chunk at offset ", chunk_grid_offset);
+    //UtilityFunctions::print("Generating mesh for chunk at offset ", chunk_grid_offset);
 
     // 1. Run Marching Cubes
     Dictionary mc_data = _march_cubes();
@@ -203,7 +212,12 @@ void MCChunk::generate_mesh_from_density_grid() {
         _generate_collision(vertices, indices);
     }
 
-    UtilityFunctions::print("Mesh generation complete for chunk at offset ", chunk_grid_offset, ". Verts: ", vertices.size(), ", Tris: ", indices.size() / 3);
+    // 6. Generate Occluder
+    if (generate_occluder) {
+        _generate_occluder(vertices, indices);
+    }
+
+    //UtilityFunctions::print("Mesh generation complete for chunk at offset ", chunk_grid_offset, ". Verts: ", vertices.size(), ", Tris: ", indices.size() / 3);
 }
 
 
@@ -419,7 +433,7 @@ void MCChunk::_generate_collision(const PackedVector3Array &p_vertices, const Pa
     cs->set_owner(get_owner()); // Important for scene saving/duplication
     cs->set_shape(collision_shape);
 
-    UtilityFunctions::print("MCChunk: Generated collision for chunk at offset ", chunk_grid_offset);
+    //UtilityFunctions::print("MCChunk: Generated collision for chunk at offset ", chunk_grid_offset);
 }
 
 void MCChunk::_clear_collision() {
@@ -436,6 +450,53 @@ void MCChunk::_clear_collision() {
         }
     }
     collision_shape.unref(); // Also unreference the shape resource itself
+}
+
+
+// --- Occluder Generation Implementation ---
+void MCChunk::_generate_occluder(const PackedVector3Array &p_vertices, const PackedInt32Array &p_indices) {
+    if (p_vertices.is_empty() || p_indices.is_empty()) {
+        UtilityFunctions::print("MCChunk._generate_occluder: No vertices or indices to generate occluder.");
+        _clear_occluder(); // Ensure no leftover occluder
+        return;
+    }
+
+    // Create an OccluderInstance3D as a child
+    OccluderInstance3D *occluder_instance = memnew(OccluderInstance3D);
+    add_child(occluder_instance);
+    occluder_instance->set_owner(get_owner()); // Important for scene saving
+
+    // Create the ArrayOccluder3D resource
+    occluder_shape.instantiate();
+    if (!occluder_shape.is_valid()) {
+        UtilityFunctions::printerr("MCChunk._generate_occluder: Failed to instantiate ArrayOccluder3D.");
+        occluder_instance->queue_free(); // Clean up the instance
+        return;
+    }
+
+    // Set the vertices and indices for the occluder shape.
+    // ArrayOccluder3D directly uses vertices and an index array.
+    occluder_shape->set_vertices(p_vertices);
+    occluder_shape->set_indices(p_indices);
+
+    // Assign the shape to the OccluderInstance3D node
+    occluder_instance->set_occluder(occluder_shape);
+
+    //UtilityFunctions::print("MCChunk: Generated occluder for chunk at offset ", chunk_grid_offset);
+}
+
+void MCChunk::_clear_occluder() {
+    // Iterate through children to find and remove OccluderInstance3D
+    // We iterate backwards to safely remove children while iterating.
+    for (int i = get_child_count() - 1; i >= 0; --i) {
+        Node *child = get_child(i);
+        if (Object::cast_to<OccluderInstance3D>(child)) {
+            // Found an OccluderInstance3D, remove it
+            child->queue_free(); // Queue for deletion
+            UtilityFunctions::print("MCChunk: Cleared existing occluder instance for chunk at offset ", chunk_grid_offset);
+        }
+    }
+    occluder_shape.unref(); // Also unreference the shape resource itself
 }
 
 
@@ -463,6 +524,13 @@ void MCChunk::set_generate_collision(bool p_generate) {
 }
 bool MCChunk::get_generate_collision() const {
     return generate_collision;
+}
+
+void MCChunk::set_generate_occluder(bool p_generate) {
+    generate_occluder = p_generate;
+}
+bool MCChunk::get_generate_occluder() const {
+    return generate_occluder;
 }
 
 } // namespace godot

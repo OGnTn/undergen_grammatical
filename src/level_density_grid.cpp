@@ -201,34 +201,34 @@ void LevelDensityGrid::_calculate_surface_normals() {
                     if (x > 0) {
                         float left = get_cell(Vector3i(x - 1, y, z), WORLD_SOLID_VALUE);
                         if (left < surf_thresh) is_surface = true;
-                        gradient.x -= Math::round(left);
+                        gradient.x -= left;
                     }
                     if (x < gsx - 1) {
                         float right = get_cell(Vector3i(x + 1, y, z), WORLD_SOLID_VALUE);
                         if (right < surf_thresh) is_surface = true;
-                        gradient.x += Math::round(right);
+                        gradient.x += right;
                     }
                     // Check Y neighbors
                     if (y > 0) {
                         float down = get_cell(Vector3i(x, y - 1, z), WORLD_SOLID_VALUE);
                         if (down < surf_thresh) is_surface = true;
-                        gradient.y -= Math::round(down);
+                        gradient.y -= down;
                     }
                     if (y < gsy - 1) {
                         float up = get_cell(Vector3i(x, y + 1, z), WORLD_SOLID_VALUE);
                         if (up < surf_thresh) is_surface = true;
-                        gradient.y += Math::round(up);
+                        gradient.y += up;
                     }
                     // Check Z neighbors
                     if (z > 0) {
                         float back = get_cell(Vector3i(x, y, z - 1), WORLD_SOLID_VALUE);
                         if (back < surf_thresh) is_surface = true;
-                        gradient.z -= Math::round(back);
+                        gradient.z -= back;
                     }
                     if (z < gsz - 1) {
                         float front = get_cell(Vector3i(x, y, z + 1), WORLD_SOLID_VALUE);
                         if (front < surf_thresh) is_surface = true;
-                        gradient.z += Math::round(front);
+                        gradient.z += front;
                     }
 
                     if (is_surface) {
