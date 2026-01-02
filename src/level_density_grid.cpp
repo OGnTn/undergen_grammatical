@@ -8,6 +8,9 @@
 #include <godot_cpp/classes/node.hpp> // For _Ready() if needed, although Resources don't have it
 #include <map> // For std::map if needed for A* point map instead of Dictionary
 #include <vector> // Added for temporary grid in low_pass and path nodes
+#include <queue>
+#include <unordered_map>
+#include <cmath>
 
 namespace godot {
 
@@ -296,7 +299,7 @@ void LevelDensityGrid::_generate_rooms_and_paths(float voxel_size) {
     
     // --- 2. Carve Paths Between Rooms ---
     if (dungeon_mode) {
-        UtilityFunctions::print("Connecting ", generated_rooms.size(), " rooms with dungeon-style corridors.");
+        UtilityFunctions::print("Connecting ", generated_rooms.size(), " rooms with dungeon-style rectangular corridors.");
     } else {
         UtilityFunctions::print("Connecting ", generated_rooms.size(), " rooms with bezier curve paths.");
     }
@@ -350,6 +353,7 @@ void LevelDensityGrid::_generate_rooms_and_paths(float voxel_size) {
         }
 
         if (dungeon_mode) {
+            // Carve axis-aligned rectangular corridors with 90-degree turns and staircases for vertical movement.
             _carve_dungeon_path(path_start_point, path_end_point);
         } else {
             std::vector<Vector3> path_nodes;
@@ -463,36 +467,79 @@ void LevelDensityGrid::_apply_noise() {
 
 
 void LevelDensityGrid::_mark_brush(const Vector3i &center, int radius_lower, int radius_higher, float value) {
-     if (!rng.is_valid()) {
-         UtilityFunctions::printerr("LevelDensityGrid._mark_brush: RNG not valid.");
-         return;
-     }
-     int r_low = radius_lower;
-     int r_high = radius_higher;
-     if (r_high < r_low) r_high = r_low;
-     if (r_low < 0) r_low = 0;
+    if (!rng.is_valid()) {
+        UtilityFunctions::printerr("LevelDensityGrid._mark_brush: RNG not valid.");
+        return;
+    }
+    int r_low = radius_lower;
+    int r_high = radius_higher;
+    if (r_high < r_low) r_high = r_low;
+    if (r_low < 0) r_low = 0;
 
-     int radius = (r_low == r_high) ? r_low : rng->randi_range(r_low, r_high);
-     if (radius <= 0) return;
+    int radius = (r_low == r_high) ? r_low : rng->randi_range(r_low, r_high);
+    if (radius <= 0) return;
 
-     int radius_sq = radius * radius;
+    int radius_sq = radius * radius;
+    
+    // Grid bounds for clamping
+    int gsx = get_grid_size_x();
+    int gsy = get_grid_size_y();
+    int gsz = get_grid_size_z();
 
-    for (int i = -radius; i <= radius; ++i) {
-        for (int j = -radius; j <= radius; ++j) {
-            for (int k = -radius; k <= radius; ++k) {
-                bool in_shape = false;
-                if (use_square_brush) {
-                    in_shape = true; // For a square brush, everything in the bounding box is inside.
-                } else {
-                    if (i * i + j * j + k * k < radius_sq) {
-                        in_shape = true; // For a round brush, check the sphere equation.
+    if(dungeon_mode) {
+        for (int i = -radius; i <= radius; ++i) {
+            for (int j = 0; j <= radius * 2; ++j) { 
+                for (int k = -radius; k <= radius; ++k) {
+                    if (use_square_brush || dungeon_mode) {
+                        Vector3i current_pos = center + Vector3i(i, j, k);
+                        
+                        // [FIX] Add explicit boundary checks before setting cell
+                        if (current_pos.x > 0 && current_pos.x < gsx - 1 &&
+                            current_pos.y > 0 && current_pos.y < gsy - 1 &&
+                            current_pos.z > 0 && current_pos.z < gsz - 1) {
+                            
+                            set_cell(current_pos, value);
+                        }
+                    } else {
+                        if (i * i + j * j + k * k < radius_sq) {
+                            Vector3i current_pos = center + Vector3i(i, j, k);
+                            
+                            // [FIX] Add explicit boundary checks
+                            if (current_pos.x > 0 && current_pos.x < gsx - 1 &&
+                                current_pos.y > 0 && current_pos.y < gsy - 1 &&
+                                current_pos.z > 0 && current_pos.z < gsz - 1) {
+                                
+                                set_cell(current_pos, value);
+                            }
+                        }
                     }
                 }
+            }
+        }
+    }
+    else {
+        for (int i = -radius; i <= radius; ++i) {
+            for (int j = -radius; j <= radius; ++j) {
+                for (int k = -radius; k <= radius; ++k) {
+                    bool in_shape = false;
+                    if (use_square_brush) {
+                        in_shape = true; 
+                    } else {
+                        if (i * i + j * j + k * k < radius_sq) {
+                            in_shape = true; 
+                        }
+                    }
 
-                if (in_shape) {
-                    Vector3i current_pos = center + Vector3i(i, j, k);
-                    if (current_pos.y > 0) { // Prevent modifying the bottom layer.
-                        set_cell(current_pos, value);
+                    if (in_shape) {
+                        Vector3i current_pos = center + Vector3i(i, j, k);
+                        
+                        // [FIX] Replaced simple y>0 check with full boundary check
+                        if (current_pos.x > 0 && current_pos.x < gsx - 1 &&
+                            current_pos.y > 0 && current_pos.y < gsy - 1 &&
+                            current_pos.z > 0 && current_pos.z < gsz - 1) {
+                            
+                            set_cell(current_pos, value);
+                        }
                     }
                 }
             }
@@ -502,14 +549,33 @@ void LevelDensityGrid::_mark_brush(const Vector3i &center, int radius_lower, int
 
 
 void LevelDensityGrid::_create_room(const Dictionary &room) {
-     if (!room.has("start") || !room.has("end")) return;
-     Vector3i start = room["start"];
-     Vector3i end = room["end"];
+    if (!room.has("start") || !room.has("end")) return;
+    
+    Vector3i start = room["start"];
+    Vector3i end = room["end"];
+
+    // Determine raw bounds
     Vector3i min_corner(Math::min(start.x, end.x), Math::min(start.y, end.y), Math::min(start.z, end.z));
     Vector3i max_corner(Math::max(start.x, end.x), Math::max(start.y, end.y), Math::max(start.z, end.z));
-    for (int x = min_corner.x; x < max_corner.x; ++x) {
-        for (int y = Math::max(min_corner.y, 1); y < max_corner.y; ++y) {
-            for (int z = min_corner.z; z < max_corner.z; ++z) {
+
+    // Get Grid Dimensions
+    int gsx = get_grid_size_x();
+    int gsy = get_grid_size_y();
+    int gsz = get_grid_size_z();
+
+    // [FIX] Clamp loops to range [1, size-1] to preserve solid boundary shell
+    int start_x = Math::max(min_corner.x, 1);
+    int end_x   = Math::min(max_corner.x, gsx - 1);
+    
+    int start_y = Math::max(min_corner.y, 1); // Ground is usually y=0, keep y=0 solid too
+    int end_y   = Math::min(max_corner.y, gsy - 1);
+
+    int start_z = Math::max(min_corner.z, 1);
+    int end_z   = Math::min(max_corner.z, gsz - 1);
+
+    for (int x = start_x; x < end_x; ++x) {
+        for (int y = start_y; y < end_y; ++y) {
+            for (int z = start_z; z < end_z; ++z) {
                 set_cell(Vector3i(x, y, z), WORLD_OPEN_VALUE);
             }
         }
@@ -590,60 +656,322 @@ Vector3i LevelDensityGrid::_find_ground_position(const Vector3i &start_pos) {
     return Vector3i(clamped_start_pos.x, 0, clamped_start_pos.z);
 }
 
-void LevelDensityGrid::_carve_dungeon_path(const Vector3 &start, const Vector3 &end) {
-    Vector3i p_start = Vector3i(start);
-    Vector3i p_end = Vector3i(end);
-    Vector3i corner1, corner2;
-    if (rng->randf() > 0.5f) {
-        corner1 = Vector3i(p_end.x, p_start.y, p_start.z);
-        corner2 = Vector3i(p_end.x, p_start.y, p_end.z);
-    } else {
-        corner1 = Vector3i(p_start.x, p_start.y, p_end.z);
-        corner2 = Vector3i(p_end.x, p_start.y, p_end.z);
+// --- Helper Struct for A* Pathfinding ---
+struct PathNode {
+    Vector3i pos;
+    Vector3i entered_from; // The direction vector we arrived from
+    int g;
+    int h;
+    bool is_staircase;     // State: Are we currently building a staircase?
+    Vector3i parent_pos;   // For path reconstruction
+
+    int f() const { return g + h; }
+
+    // Min-heap priority queue comparator (reversed)
+    bool operator>(const PathNode& other) const {
+        return f() > other.f();
     }
-    _carve_line(p_start, corner1);
-    _carve_line(corner1, corner2);
-    _carve_staircase(corner2, p_end, corner1);
+};
+
+// --- Main Path Carving Function ---
+void LevelDensityGrid::_carve_dungeon_path(const Vector3 &start, const Vector3 &end) {
+    Vector3i start_i = Vector3i(start);
+    Vector3i end_i = Vector3i(end);
+    
+    int gsx = get_grid_size_x();
+    int gsy = get_grid_size_y();
+    int gsz = get_grid_size_z();
+    float surf_thresh = get_surface_threshold();
+
+    // 1. Horizontal Directions (For corridors)
+    Vector3i dirs_flat[4] = {
+        Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+        Vector3i(0, 0, 1), Vector3i(0, 0, -1)
+    };
+
+    // 2. Stair Directions (Combined Horizontal + Vertical)
+    // We construct these dynamically during the loop to match the 4 flat directions
+    // combined with Up (1) and Down (-1).
+
+    struct DungeonNode {
+        Vector3i pos;
+        Vector3i entered_from; 
+        int g;                  
+        
+        int straight_dist;      
+        int dist_since_stair;   
+        int current_stair_len;  
+        bool is_in_staircase;   
+        
+        Vector3i parent_pos;
+
+        bool operator>(const DungeonNode& other) const { 
+            return g > other.g; 
+        }
+    };
+
+    std::priority_queue<DungeonNode, std::vector<DungeonNode>, std::greater<DungeonNode>> open_set;
+    
+    auto get_idx = [&](const Vector3i& v) -> int64_t { 
+        return (int64_t)v.z * gsx * gsy + (int64_t)v.y * gsx + v.x; 
+    };
+    
+    std::unordered_map<int64_t, int> closed_set_g;
+
+    // --- CONFIGURABLE WEIGHTS ---
+    const int COST_MOVE_BASE = 10;
+    
+    const int COST_TURN_BASE = 500;       
+    const int COST_TURN_DECAY = 40;       
+    const int COST_TURN_MIN = 20;         
+
+    const int COST_STAIR_START_BASE = 1000; 
+    const int COST_STAIR_START_DECAY = 50;  
+    const int COST_STAIR_START_MIN = 50;
+    
+    const int COST_STAIR_STEP_BASE = 20;    
+    const int COST_STAIR_LEN_PENALTY = 50;  // Increased penalty for long stairs
+
+    const int COST_ROOM_PENALTY = 5000;     
+
+    DungeonNode start_node = {
+        start_i, Vector3i(0,0,0), 0, 
+        0, 100, 0, false, start_i
+    };
+    
+    open_set.push(start_node);
+    closed_set_g[get_idx(start_i)] = 0;
+    std::unordered_map<int64_t, DungeonNode> came_from;
+
+    DungeonNode final_node;
+    bool found = false;
+    int max_iterations = 2000000; 
+    int iter = 0;
+
+    while (!open_set.empty() && iter < max_iterations) {
+        iter++;
+        DungeonNode current = open_set.top();
+        open_set.pop();
+
+        if (current.pos == end_i) {
+            final_node = current;
+            found = true;
+            break;
+        }
+
+        // We check 4 Cardinal directions. 
+        // For each cardinal direction, we can go Flat, Up-Stair, or Down-Stair.
+        for (const Vector3i& d_flat : dirs_flat) {
+            
+            // Define the 3 possible moves for this cardinal direction
+            struct MoveOption {
+                Vector3i dir;
+                bool is_stair;
+                int y_change;
+            };
+
+            MoveOption options[3] = {
+                { d_flat, false, 0 },                     // Flat Move
+                { d_flat + Vector3i(0, 1, 0), true, 1 },  // Stair Up
+                { d_flat + Vector3i(0, -1, 0), true, -1 } // Stair Down
+            };
+
+            for (const auto& opt : options) {
+                Vector3i next_pos = current.pos + opt.dir;
+
+                // 1. Boundary Check
+                if (next_pos.x <= 1 || next_pos.x >= gsx - 2 ||
+                    next_pos.y <= 1 || next_pos.y >= gsy - 2 ||
+                    next_pos.z <= 1 || next_pos.z >= gsz - 2) {
+                    continue;
+                }
+
+                // 2. Determine State
+                // Note: We compare against d_flat for turns, because even if we go up/down,
+                // we are still moving in that cardinal direction.
+                bool is_straight = (d_flat == current.entered_from) || (current.entered_from == Vector3i(0,0,0));
+                
+                // However, if we were in a stair and switch to flat (or vice versa), that's a "state change" cost,
+                // effectively acting like a turn or specific penalty.
+                
+                int move_cost = COST_MOVE_BASE;
+
+                // A. Room Avoidance
+                float cell_val = get_cell(next_pos, WORLD_SOLID_VALUE);
+                if (cell_val < surf_thresh && next_pos != end_i && next_pos != start_i) {
+                    move_cost += COST_ROOM_PENALTY;
+                }
+
+                // B. Turn Logic (Horizontal Plane)
+                if (!is_straight) {
+                    // Turn penalty applies to both flat and stair moves if they change horizontal direction
+                    int reduction = current.straight_dist * COST_TURN_DECAY;
+                    int turn_cost = Math::max(COST_TURN_MIN, COST_TURN_BASE - reduction);
+                    move_cost += turn_cost;
+                }
+
+                // C. Stair Logic
+                if (opt.is_stair) {
+                    if (current.is_in_staircase) {
+                        // Continuing a staircase
+                        // Check if we are keeping the same vertical direction (Up vs Down)
+                        // (Simple check: compare y_change. If we switched Up to Down, huge penalty)
+                        Vector3i prev_move = current.pos - current.parent_pos;
+                        if (Math::sign(prev_move.y) != opt.y_change) {
+                            move_cost += 2000; // Penalty for zigzagging up/down immediately
+                        }
+
+                        move_cost += COST_STAIR_STEP_BASE;
+                        move_cost += (current.current_stair_len * COST_STAIR_LEN_PENALTY);
+                    } else {
+                        // STARTING a staircase
+                        int reduction = current.dist_since_stair * COST_STAIR_START_DECAY;
+                        int start_cost = Math::max(COST_STAIR_START_MIN, COST_STAIR_START_BASE - reduction);
+                        move_cost += start_cost;
+                    }
+                }
+
+                // --- 3. Update Next State ---
+                int new_straight_dist = is_straight ? current.straight_dist + 1 : 1;
+                int new_dist_since_stair = current.dist_since_stair;
+                int new_stair_len = 0;
+                
+                if (opt.is_stair) {
+                    new_stair_len = current.current_stair_len + 1;
+                    new_dist_since_stair = 0; // Reset cooldown
+                } else {
+                    new_stair_len = 0;
+                    if (!current.is_in_staircase) {
+                         new_dist_since_stair++;
+                    }
+                }
+                
+                // Store "entered_from" as the horizontal component (d_flat)
+                // so the next iteration knows if we kept going straight horizontally.
+                Vector3i new_entered_from = d_flat;
+
+                int new_g = current.g + move_cost;
+                int64_t n_idx = get_idx(next_pos);
+
+                if (closed_set_g.find(n_idx) == closed_set_g.end() || new_g < closed_set_g[n_idx]) {
+                    closed_set_g[n_idx] = new_g;
+                    DungeonNode next_node = {
+                        next_pos, new_entered_from, new_g,
+                        new_straight_dist, new_dist_since_stair, new_stair_len, 
+                        opt.is_stair, current.pos
+                    };
+                    came_from[n_idx] = next_node;
+                    open_set.push(next_node);
+                }
+            }
+        }
+    }
+
+    if (found) {
+        // Reconstruct
+        std::vector<Vector3i> path;
+        DungeonNode curr = final_node;
+        while (curr.pos != start_i) {
+            path.push_back(curr.pos);
+            int64_t idx = get_idx(curr.pos);
+            if (came_from.find(idx) == came_from.end()) break;
+            
+            // Parent Lookup
+            int64_t parent_idx = get_idx(curr.parent_pos);
+            if (came_from.find(parent_idx) != came_from.end()) {
+                curr = came_from[parent_idx];
+            } else if (curr.parent_pos == start_i) {
+                break;
+            } else {
+                break;
+            }
+        }
+        path.push_back(start_i);
+
+        UtilityFunctions::print("Dungeon Path Generated. Length: ", path.size());
+
+        // Carve
+        for (const Vector3i& p : path) {
+            // Mark the floor/walking space
+            _mark_brush(p, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+            
+            // HEADROOM LOGIC:
+            // If this node is part of a staircase (it's not flat relative to neighbors),
+            // we must ensure headroom.
+            // Since we don't have easy access to neighbors here, we can just aggressively clear upwards
+            // for ANY node, or rely on the brush size. 
+            // Better: If the path implies verticality, clear 2 blocks up.
+            
+            // To be safe for navigation, let's clear p + (0,1,0) and p + (0,2,0)
+            // explicitly with a smaller brush or exact set_cell to ensure head doesn't clip.
+            
+            set_cell(p + Vector3i(0, 1, 0), WORLD_OPEN_VALUE);
+            set_cell(p + Vector3i(0, 2, 0), WORLD_OPEN_VALUE);
+        }
+    } else {
+        UtilityFunctions::printerr("Dungeon Pathfinding Failed. Falling back.");
+        _carve_corridor_segment(start_i, end_i);
+    }
 }
 
-void LevelDensityGrid::_carve_line(const Vector3i &from, const Vector3i &to) {
+void LevelDensityGrid::_carve_staircase_v2(const Vector3i &start, const Vector3i &target) {
+    Vector3i current = start;
+    int y_diff = target.y - start.y;
+    int y_dir = Math::sign(y_diff);
+    
+    // We use a simple 1x1 step logic here
+    // For every 1 block we move up/down, we move 1 block forward in a chosen direction
+    // to create a 45-degree staircase.
+    
+    // Choose a direction for the stairs to "unfold" (defaulting to Z if possible)
+    Vector3i step_forward(0, 0, 1); 
+    
+    while (current.y != target.y) {
+        // 1. Carve the 'walking' space (the step)
+        set_cell(current, WORLD_OPEN_VALUE);
+        
+        // 2. Clear 2-3 blocks above the step for head clearance
+        for (int h = 1; h <= 3; ++h) {
+            set_cell(current + Vector3i(0, h, 0), WORLD_OPEN_VALUE);
+        }
+        
+        // 3. Move to the next step (1 forward, 1 up/down)
+        current.y += y_dir;
+        // current += step_forward; // Optional: include if you want diagonal stairs
+    }
+    
+    // Finish by connecting the end of the stairs to the target room center
+    _carve_corridor_segment(current, target);
+}
+
+void LevelDensityGrid::_carve_corridor_segment(const Vector3i &from, const Vector3i &to) {
     Vector3i current = from;
-    Vector3i delta = to - from;
+    if (current == to) {
+        _mark_brush(current, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+        return;
+    }
+
+    // If movement spans multiple axes, split into axis-aligned segments (X -> Z -> Y)
+    if ((from.x != to.x && from.z != to.z) && from.y == to.y) {
+        Vector3i mid(to.x, from.y, from.z);
+        _carve_corridor_segment(from, mid);
+        _carve_corridor_segment(mid, to);
+        return;
+    }
+
     Vector3i dir(
-        (delta.x == 0) ? 0 : static_cast<int>(Math::sign(delta.x)),
-        (delta.y == 0) ? 0 : static_cast<int>(Math::sign(delta.y)),
-        (delta.z == 0) ? 0 : static_cast<int>(Math::sign(delta.z))
+        (to.x == current.x) ? 0 : static_cast<int>(Math::sign(to.x - current.x)),
+        (to.y == current.y) ? 0 : static_cast<int>(Math::sign(to.y - current.y)),
+        (to.z == current.z) ? 0 : static_cast<int>(Math::sign(to.z - current.z))
     );
+
     _mark_brush(current, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
     while (current != to) {
-        current += dir;
+        current.x += dir.x;
+        current.y += dir.y;
+        current.z += dir.z;
         _mark_brush(current, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
     }
-}
-
-void LevelDensityGrid::_carve_staircase(const Vector3i &bottom, const Vector3i &top, const Vector3i &prev_corner) {
-    if (bottom.y == top.y) return;
-    Vector3i current = bottom;
-    int y_dir = (top.y > bottom.y) ? 1 : -1;
-    Vector3i approach_vec = bottom - prev_corner;
-    Vector3i step_dir(0, 0, 0);
-    if (approach_vec.x == 0 && approach_vec.z == 0) {
-        step_dir.z = -1;
-    } else if (abs(approach_vec.x) > abs(approach_vec.z)) {
-        step_dir.x = -static_cast<int>(Math::sign(approach_vec.x));
-    } else {
-        step_dir.z = -static_cast<int>(Math::sign(approach_vec.z));
-    }
-    _mark_brush(current, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
-    _mark_brush(current + Vector3i(0, 1, 0), path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
-    while (current.y != top.y) {
-        current += step_dir;
-        current.y += y_dir;
-        _mark_brush(current, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
-        _mark_brush(current + Vector3i(0, 1, 0), path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
-    }
-    _mark_brush(top, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
-    _mark_brush(top + Vector3i(0, 1, 0), path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
 }
 
 void LevelDensityGrid::low_pass() {
