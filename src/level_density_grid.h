@@ -47,6 +47,15 @@ private:
     bool smooth_terrain = false;
     int smoothing_strength = 1;
 
+    int max_basin_size = 40;       // Default from our testing
+    float sparsity_cutoff = 0.2f;  // Default noise threshold
+    float water_height_density = 0.5f; // Default density for 80% height
+
+    int liquid_resolution_multiplier = 2; // Default to 2x resolution
+
+    // Update helper signature to accept the multiplier for terrain lookups
+    bool _is_space_free(const Vector3i& high_res_pos, const PackedFloat32Array& liquid_data, int resolution_mult);
+
     // --- Runtime Data ---
     Vector3 calculated_spawn_position = Vector3(0, 0, 0);
     Vector3 calculated_end_position = Vector3(0, 0, 0);
@@ -133,6 +142,19 @@ public:
 
     void set_noise_generator(const Ref<FastNoiseLite> &p_noise);
     Ref<FastNoiseLite> get_noise_generator() const;
+    Ref<DensityGrid> generate_liquid_grid();
+
+    void set_max_basin_size(int p_size);
+    int get_max_basin_size() const;
+
+    void set_sparsity_cutoff(float p_cutoff);
+    float get_sparsity_cutoff() const;
+
+    void set_water_height_density(float p_density);
+    float get_water_height_density() const;
+
+    void set_liquid_resolution_multiplier(int p_mult);
+    int get_liquid_resolution_multiplier() const;
 };
 
 } // namespace godot

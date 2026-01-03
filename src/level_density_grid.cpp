@@ -11,6 +11,7 @@
 #include <queue>
 #include <unordered_map>
 #include <cmath>
+#include <unordered_set>
 
 namespace godot {
 
@@ -143,6 +144,29 @@ void LevelDensityGrid::_bind_methods() {
 
 
     ClassDB::bind_method(D_METHOD("_find_ground_position", "start_pos"), &LevelDensityGrid::_find_ground_position);
+
+    ClassDB::bind_method(D_METHOD("generate_liquid_grid"), &LevelDensityGrid::generate_liquid_grid);
+    
+    ADD_GROUP("Liquid Generation", "liquid_");
+    
+    // Max Basin Size
+    ClassDB::bind_method(D_METHOD("set_max_basin_size", "size"), &LevelDensityGrid::set_max_basin_size);
+    ClassDB::bind_method(D_METHOD("get_max_basin_size"), &LevelDensityGrid::get_max_basin_size);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "liquid_max_basin_size", PROPERTY_HINT_RANGE, "1,500,1"), "set_max_basin_size", "get_max_basin_size");
+
+    // Sparsity Cutoff
+    ClassDB::bind_method(D_METHOD("set_sparsity_cutoff", "cutoff"), &LevelDensityGrid::set_sparsity_cutoff);
+    ClassDB::bind_method(D_METHOD("get_sparsity_cutoff"), &LevelDensityGrid::get_sparsity_cutoff);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "liquid_sparsity_cutoff", PROPERTY_HINT_RANGE, "-1.0,1.0,0.05"), "set_sparsity_cutoff", "get_sparsity_cutoff");
+
+    // Water Height Density
+    ClassDB::bind_method(D_METHOD("set_water_height_density", "density"), &LevelDensityGrid::set_water_height_density);
+    ClassDB::bind_method(D_METHOD("get_water_height_density"), &LevelDensityGrid::get_water_height_density);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "liquid_water_height_density", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_water_height_density", "get_water_height_density");
+
+    ClassDB::bind_method(D_METHOD("set_liquid_resolution_multiplier", "multiplier"), &LevelDensityGrid::set_liquid_resolution_multiplier);
+    ClassDB::bind_method(D_METHOD("get_liquid_resolution_multiplier"), &LevelDensityGrid::get_liquid_resolution_multiplier);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "liquid_resolution_multiplier", PROPERTY_HINT_RANGE, "1,8,1"), "set_liquid_resolution_multiplier", "get_liquid_resolution_multiplier");
 }
 
 // --- Main Generation Function ---
@@ -179,6 +203,171 @@ void LevelDensityGrid::generate_level_data(const Vector3i &world_grid_dimensions
     _calculate_surface_normals();
 
     UtilityFunctions::print("Level Data Generation Complete. Spawn: ", calculated_spawn_position, ", End: ", calculated_end_position);
+}
+
+bool LevelDensityGrid::_is_space_free(const Vector3i& high_res_pos, const PackedFloat32Array& liquid_data, int resolution_mult) {
+    // 1. Check Bounds (High Res)
+    int hr_gsx = get_grid_size_x() * resolution_mult;
+    int hr_gsy = get_grid_size_y() * resolution_mult;
+    int hr_gsz = get_grid_size_z() * resolution_mult;
+
+    if (high_res_pos.x < 0 || high_res_pos.x >= hr_gsx ||
+        high_res_pos.y < 0 || high_res_pos.y >= hr_gsy ||
+        high_res_pos.z < 0 || high_res_pos.z >= hr_gsz) {
+        return false;
+    }
+
+    // 2. Check Terrain Collision (Map High Res -> Low Res)
+    // Integer division handles the mapping (e.g., pos 3 / mult 2 = index 1)
+    Vector3i terrain_pos = high_res_pos / resolution_mult;
+    
+    float terrain_density = get_cell(terrain_pos, 1.0f);
+    if (terrain_density > get_surface_threshold()) return false; // Blocked by terrain
+
+    // 3. Check Existing Liquid (High Res)
+    // We must manually calculate index because get_index() in this class 
+    // is hardcoded for the terrain grid dimensions.
+    int64_t idx = (int64_t)high_res_pos.z * hr_gsy * hr_gsx + 
+                  (int64_t)high_res_pos.y * hr_gsx + 
+                  high_res_pos.x;
+                  
+    if (idx >= 0 && idx < liquid_data.size()) {
+        if (liquid_data[idx] > 0.1f) return false; // Already has water
+    }
+
+    return true;
+}
+// src/level_density_grid.cpp
+
+Ref<DensityGrid> LevelDensityGrid::generate_liquid_grid() {
+    Ref<DensityGrid> liquid_grid;
+    liquid_grid.instantiate();
+    int gsx = get_grid_size_x();
+    int gsy = get_grid_size_y();
+    int gsz = get_grid_size_z();
+    liquid_grid->initialize_grid(gsx, gsy, gsz, 0.0f);
+
+    Ref<FastNoiseLite> distribution_noise;
+    distribution_noise.instantiate();
+    distribution_noise->set_seed(noise_seed + 999);
+    distribution_noise->set_frequency(0.1f); 
+    distribution_noise->set_noise_type(FastNoiseLite::TYPE_PERLIN);
+
+    float terrain_thresh = get_surface_threshold();
+    
+    // USE CLASS MEMBERS HERE INSTEAD OF LOCAL CONSTANTS
+    // int max_basin_size = ... (removed)
+    // float sparsity_cutoff = ... (removed)
+
+    // Helper: Is this voxel "Solid" enough to hold water?
+    auto is_support = [&](Vector3i p) {
+        if (p.x < 0 || p.x >= gsx || p.y < 0 || p.y >= gsy || p.z < 0 || p.z >= gsz) return false;
+        if (get_cell(p, 1.0f) >= terrain_thresh) return true; 
+        if (liquid_grid->get_cell(p, 0.0f) > 0.5f) return true; 
+        return false;
+    };
+    
+    auto is_blocked = [&](Vector3i p) {
+        if (p.x < 0 || p.x >= gsx || p.y < 0 || p.y >= gsy || p.z < 0 || p.z >= gsz) return true; 
+        if (get_cell(p, 1.0f) >= terrain_thresh) return true;
+        if (liquid_grid->get_cell(p, 0.0f) > 0.5f) return true;
+        return false;
+    };
+
+    for (int y = 1; y < gsy - 1; ++y) {
+        std::unordered_set<int64_t> layer_visited;
+        
+        for (int z = 0; z < gsz; ++z) {
+            for (int x = 0; x < gsx; ++x) {
+                Vector3i pos(x, y, z);
+                int64_t idx = liquid_grid->get_index(pos);
+                
+                if (layer_visited.count(idx)) continue; 
+                
+                if (is_blocked(pos)) continue; 
+                if (!is_support(Vector3i(x, y-1, z))) continue; 
+                
+                // Use member variable sparsity_cutoff
+                if (distribution_noise->get_noise_2d((float)x, (float)z) < sparsity_cutoff) continue;
+
+                std::vector<Vector3i> candidates;
+                std::queue<Vector3i> q;
+                std::unordered_set<int64_t> current_flood_set; 
+
+                bool leaked = false;
+                
+                q.push(pos);
+                candidates.push_back(pos);
+                current_flood_set.insert(idx);
+                layer_visited.insert(idx);
+
+                while (!q.empty()) {
+                    Vector3i curr = q.front();
+                    q.pop();
+
+                    // Use member variable max_basin_size
+                    if (candidates.size() > max_basin_size) {
+                        leaked = true; 
+                        break;
+                    }
+
+                    Vector3i nbs[4] = {
+                        curr + Vector3i(1,0,0), curr + Vector3i(-1,0,0),
+                        curr + Vector3i(0,0,1), curr + Vector3i(0,0,-1)
+                    };
+
+                    for (Vector3i nb : nbs) {
+                        int64_t nb_idx = liquid_grid->get_index(nb);
+                        
+                        if (nb.x < 0 || nb.x >= gsx - 1 || nb.z < 0 || nb.z >= gsz - 1 || nb.y < 0 || nb.y >= gsy - 1) {
+                            leaked = true;
+                            break;
+                        }
+
+                        if (is_blocked(nb)) continue;
+
+                        if (!is_support(nb + Vector3i(0, -1, 0))) {
+                            leaked = true;
+                            break;
+                        }
+
+                        if (current_flood_set.find(nb_idx) == current_flood_set.end()) {
+                            current_flood_set.insert(nb_idx);
+                            layer_visited.insert(nb_idx); 
+                            q.push(nb);
+                            candidates.push_back(nb);
+                        }
+                    }
+                    if (leaked) break;
+                }
+
+                if (!leaked) {
+                    for (const Vector3i &p : candidates) {
+                        // Use member variable water_height_density
+                        liquid_grid->set_cell(p, water_height_density);
+
+                        Vector3i cardinal_dirs[4] = {
+                            Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+                            Vector3i(0, 0, 1), Vector3i(0, 0, -1)
+                        };
+
+                        for (const Vector3i &dir : cardinal_dirs) {
+                            Vector3i nb = p + dir;
+                            if (nb.x < 0 || nb.x >= gsx || nb.z < 0 || nb.z >= gsz) continue;
+
+                            if (get_cell(nb, 1.0f) >= terrain_thresh) {
+                                // Use member variable water_height_density for bleed
+                                liquid_grid->set_cell(nb, water_height_density);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    liquid_grid->set_surface_threshold(0.5f);
+    return liquid_grid;
 }
 
 // --- Internal Helper Functions ---
@@ -1115,4 +1304,15 @@ void LevelDensityGrid::set_noise_generator(const Ref<FastNoiseLite> &p_noise) {
 }
 Ref<FastNoiseLite> LevelDensityGrid::get_noise_generator() const { return noise_generator; }
 
+void LevelDensityGrid::set_max_basin_size(int p_size) { max_basin_size = p_size > 1 ? p_size : 1; }
+int LevelDensityGrid::get_max_basin_size() const { return max_basin_size; }
+
+void LevelDensityGrid::set_sparsity_cutoff(float p_cutoff) { sparsity_cutoff = p_cutoff; }
+float LevelDensityGrid::get_sparsity_cutoff() const { return sparsity_cutoff; }
+
+void LevelDensityGrid::set_water_height_density(float p_density) { water_height_density = Math::clamp(p_density, 0.0f, 1.0f); }
+float LevelDensityGrid::get_water_height_density() const { return water_height_density; }
+
+void LevelDensityGrid::set_liquid_resolution_multiplier(int p_mult) { liquid_resolution_multiplier = (p_mult < 1) ? 1 : p_mult; }
+int LevelDensityGrid::get_liquid_resolution_multiplier() const { return liquid_resolution_multiplier; }
 } // namespace godot
