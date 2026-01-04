@@ -25,6 +25,14 @@
 
 namespace godot {
 
+struct SurfaceData {
+    PackedVector3Array vertices;
+    PackedInt32Array indices;
+    // We need a separate vertex cache per material to ensure indices don't get mixed up
+    // Key: String (edge_key), Value: int (new_index)
+    Dictionary vertex_cache; 
+};
+
 class MCChunk : public MeshInstance3D {
     GDCLASS(MCChunk, MeshInstance3D);
 
@@ -32,7 +40,7 @@ private:
     int chunk_size = 16;
     float voxel_size = 1.0;
     Vector3i chunk_grid_offset = Vector3i(0, 0, 0);
-    Ref<Material> terrain_material;
+    TypedArray<Material> materials;
     bool smooth_normals = true;
     bool generate_collision = true;
     bool generate_occluder = true; // Added property for occluder generation
@@ -42,6 +50,7 @@ private:
     Ref<ConcavePolygonShape3D> collision_shape; // Member to hold the collision shape resource
     Ref<ArrayOccluder3D> occluder_shape;      // Member to hold the occluder shape resource
 
+    Dictionary _march_cubes_multi_mat();
     Dictionary _march_cubes();
     Vector3 _interpolate_vertex(const Vector3 &p1, const Vector3 &p2, float val1, float val2);
     void _generate_mesh_with_compute();
@@ -53,6 +62,8 @@ private:
     // --- Private method declarations for occluder ---
     void _generate_occluder(const PackedVector3Array &p_vertices, const PackedInt32Array &p_indices);
     void _clear_occluder(); // Method to remove existing occluder nodes
+
+    int _get_voxel_material_id(const Vector3i &local_pos);
 
 protected:
     static void _bind_methods();
@@ -86,6 +97,9 @@ public:
     // New getter/setter for generate_occluder
     void set_generate_occluder(bool p_generate);
     bool get_generate_occluder() const;
+
+    void set_materials(const TypedArray<Material> &p_materials);
+    TypedArray<Material> get_materials() const;
 
     // Compute Shader
     void set_compute_shader(const Ref<RDShaderFile> &p_shader);

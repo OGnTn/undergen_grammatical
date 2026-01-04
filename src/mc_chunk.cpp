@@ -16,6 +16,14 @@
 
 namespace godot {
 
+struct SurfaceBuilder {
+    PackedVector3Array vertices;
+    PackedVector3Array normals;
+    PackedInt32Array indices;
+    // Maps "Master Index" -> "Surface Index" to weld vertices within the surface
+    std::map<int, int> index_cache; 
+};
+
 MCChunk::MCChunk() {
     // Ensure mesh is set early, even if empty initially
     Ref<ArrayMesh> new_mesh;
@@ -54,9 +62,9 @@ void MCChunk::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_chunk_grid_offset"), &MCChunk::get_chunk_grid_offset);
     ADD_PROPERTY(PropertyInfo(Variant::VECTOR3I, "chunk_grid_offset"), "set_chunk_grid_offset", "get_chunk_grid_offset");
 
-    ClassDB::bind_method(D_METHOD("set_terrain_material", "material"), &MCChunk::set_terrain_material);
-    ClassDB::bind_method(D_METHOD("get_terrain_material"), &MCChunk::get_terrain_material);
-    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "terrain_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_terrain_material", "get_terrain_material");
+    ClassDB::bind_method(D_METHOD("set_materials", "materials"), &MCChunk::set_materials);
+    ClassDB::bind_method(D_METHOD("get_materials"), &MCChunk::get_materials);
+    ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "materials", PROPERTY_HINT_TYPE_STRING, "4/17:Material"), "set_materials", "get_materials");
 
     ClassDB::bind_method(D_METHOD("set_density_grid", "grid"), &MCChunk::set_density_grid);
     ClassDB::bind_method(D_METHOD("get_density_grid"), &MCChunk::get_density_grid);
@@ -79,158 +87,229 @@ void MCChunk::_bind_methods() {
 }
 
 void MCChunk::generate_mesh_from_density_grid() {
-    _clear_collision(); // Clear any existing collision shapes
-    _clear_occluder();  // Clear any existing occluder nodes
-
+    _clear_collision();
+    _clear_occluder();
+    
     if (!density_grid.is_valid()) {
-        UtilityFunctions::printerr("MCChunk.generate_mesh_from_density_grid: DensityGrid is null! Cannot generate mesh for chunk at offset ", chunk_grid_offset, ".");
         Ref<ArrayMesh> current_mesh = get_mesh();
-        if (current_mesh.is_valid()) {
-            current_mesh->clear_surfaces(); // Clear any previous mesh
-        }
-        return;
-    }
-    if (chunk_size <= 0 || voxel_size <= 0) {
-        UtilityFunctions::printerr("MCChunk.generate_mesh_from_density_grid: Invalid ChunkSize (", chunk_size, ") or VoxelSize (", voxel_size, ").");
-         Ref<ArrayMesh> current_mesh = get_mesh();
-        if (current_mesh.is_valid()) {
-            current_mesh->clear_surfaces();
-        }
+        if (current_mesh.is_valid()) current_mesh->clear_surfaces();
         return;
     }
 
-    // Try Compute Shader first
-    if (compute_shader.is_valid()) {
-        _generate_mesh_with_compute();
-        // _generate_mesh_with_compute handles mesh assignment, collision, and occluder internally
-        return;
-    }
+    // --- STEP 1: Generate Unified Geometry (The "Master" Mesh) ---
+    // We collect ALL triangles first, regardless of material, so we can smooth the normals.
+    
+    PackedVector3Array master_vertices;
+    PackedInt32Array master_indices;
+    std::vector<int> master_triangle_materials; // Stores the material ID for each triangle
+    
+    // Vertex Cache for the master mesh (Edge Key -> Master Index)
+    // Using std::map for string keys is slower but easiest to drop in here. 
+    // Optimization: You can use a dedicated hash map or spatial hash later.
+    std::map<String, int> master_vertex_cache;
 
-    //UtilityFunctions::print("Generating mesh for chunk at offset ", chunk_grid_offset);
+    float surface = density_grid->get_surface_threshold();
+    const Vector3i corner_offsets[8] = {
+        Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(1, 1, 0), Vector3i(0, 1, 0),
+        Vector3i(0, 0, 1), Vector3i(1, 0, 1), Vector3i(1, 1, 1), Vector3i(0, 1, 1)
+    };
 
-    // 1. Run Marching Cubes
-    Dictionary mc_data = _march_cubes();
+    // Run Marching Cubes
+    for (int z = 0; z < chunk_size; ++z) {
+        for (int y = 0; y < chunk_size; ++y) {
+            for (int x = 0; x < chunk_size; ++x) {
+                Vector3i local_pos(x, y, z);
+                Vector3i world_pos_base = chunk_grid_offset + local_pos;
 
-    // Check if Dictionary and its keys are valid
-    if (mc_data.is_empty() || !mc_data.has("vertices") || !mc_data.has("triangles")) {
-        UtilityFunctions::print("MCChunk: _march_cubes returned invalid data for chunk ", chunk_grid_offset);
-        Ref<ArrayMesh> current_mesh = get_mesh();
-        if (current_mesh.is_valid()) {
-            current_mesh->clear_surfaces();
+                // 1. Get Material ID for this voxel
+                int mat_idx = _get_voxel_material_id(local_pos);
+
+                // 2. Sample Corners
+                float corner_values[8];
+                for (int i = 0; i < 8; ++i) {
+                    corner_values[i] = density_grid->get_cell(world_pos_base + corner_offsets[i], 1.0f);
+                }
+
+                // 3. Determine Cube Index
+                int cube_index = 0;
+                for (int i = 0; i < 8; ++i) {
+                    if (corner_values[i] > surface) cube_index |= (1 << i);
+                }
+
+                const int* tri_table_row = McTables::TRI_TABLE[cube_index];
+                if (tri_table_row[0] == -1) continue;
+
+                // 4. Precompute Local Corner Positions
+                Vector3 corner_locs[8];
+                for (int i = 0; i < 8; ++i) {
+                    corner_locs[i] = Vector3(local_pos + corner_offsets[i]) * voxel_size;
+                }
+
+                // 5. Generate Triangles
+                for (int i = 0; tri_table_row[i] != -1; i += 3) {
+                    int tri_indices[3];
+
+                    // Process 3 vertices for the triangle
+                    for (int j = 0; j < 3; ++j) {
+                        int edge_index = tri_table_row[i + j];
+                        
+                        // Create unique key for this specific edge in world space
+                        String edge_key = String::num_int64(world_pos_base.x) + "_" +
+                                          String::num_int64(world_pos_base.y) + "_" +
+                                          String::num_int64(world_pos_base.z) + "_" +
+                                          String::num_int64(edge_index);
+
+                        // Check Cache
+                        auto cache_it = master_vertex_cache.find(edge_key);
+                        if (cache_it != master_vertex_cache.end()) {
+                            tri_indices[j] = cache_it->second;
+                        } else {
+                            // Interpolate new vertex
+                            int c_a = McTables::CORNER_INDEX_A_FROM_EDGE[edge_index];
+                            int c_b = McTables::CORNER_INDEX_B_FROM_EDGE[edge_index];
+                            
+                            Vector3 vert_pos = _interpolate_vertex(
+                                corner_locs[c_a], corner_locs[c_b],
+                                corner_values[c_a], corner_values[c_b]
+                            );
+
+                            int new_idx = master_vertices.size();
+                            master_vertices.append(vert_pos);
+                            master_vertex_cache[edge_key] = new_idx;
+                            tri_indices[j] = new_idx;
+                        }
+                    }
+
+                    // Store Triangle Data
+                    master_indices.append(tri_indices[0]);
+                    master_indices.append(tri_indices[1]);
+                    master_indices.append(tri_indices[2]);
+                    
+                    // Store the material this triangle belongs to
+                    master_triangle_materials.push_back(mat_idx);
+                }
+            }
         }
-        return;
     }
 
-    PackedVector3Array vertices = mc_data["vertices"];
-    PackedInt32Array indices = mc_data["triangles"]; // Should be Int32 for indices
+    if (master_vertices.is_empty()) return;
 
-    if (vertices.is_empty() || indices.is_empty()) {
-        // UtilityFunctions::print("No mesh data generated for chunk ", chunk_grid_offset);
-        Ref<ArrayMesh> current_mesh = get_mesh();
-        if (current_mesh.is_valid()) {
-            current_mesh->clear_surfaces();
-        }
-        return;
-    }
+    // --- STEP 2: Calculate Smooth Normals on Unified Mesh ---
+    PackedVector3Array master_normals;
+    master_normals.resize(master_vertices.size());
+    // Zero out normals
+    for(int i=0; i<master_normals.size(); ++i) master_normals[i] = Vector3(0,0,0);
 
-    // 2. Prepare data for ArrayMesh
-    PackedVector3Array normals;
-    PackedVector2Array uvs;
+    // Accumulate face normals
+    for (int i = 0; i < master_indices.size(); i += 3) {
+        int i1 = master_indices[i];
+        int i2 = master_indices[i+1];
+        int i3 = master_indices[i+2];
 
-    // Simple Planar UV mapping (World XY plane) - Adjust scale and projection as needed
-    uvs.resize(vertices.size());
-    float uv_scale = voxel_size;
-    if (uv_scale <= 0.0) uv_scale = 1.0; // Prevent division by zero
-    for (int i = 0; i < vertices.size(); ++i) {
-        // Use local vertex positions relative to chunk origin for UVs
-        uvs[i] = Vector2(vertices[i].x / uv_scale, vertices[i].y / uv_scale);
-    }
+        Vector3 v1 = master_vertices[i1];
+        Vector3 v2 = master_vertices[i2];
+        Vector3 v3 = master_vertices[i3];
 
-    // Calculate Normals (simple method: average face normals)
-    normals.resize(vertices.size());
-    // Initialize normals to zero vector (important!)
-    for (int i = 0; i < normals.size(); ++i) {
-        normals[i] = Vector3(0, 0, 0);
-    }
-
-    for (int i = 0; i < indices.size(); i += 3) {
-        // Add bounds checks for safety
-        int i1 = indices[i];
-        int i2 = indices[i + 1];
-        int i3 = indices[i + 2];
-
-        if (i1 < 0 || i1 >= vertices.size() || i2 < 0 || i2 >= vertices.size() || i3 < 0 || i3 >= vertices.size()) {
-             UtilityFunctions::printerr("MCChunk: Invalid index found during normal calculation: ", i1, ", ", i2, ", ", i3);
-             continue; // Skip this triangle
-        }
-
-
-        Vector3 v1 = vertices[i1];
-        Vector3 v2 = vertices[i2];
-        Vector3 v3 = vertices[i3];
         Vector3 face_normal = (v2 - v1).cross(v3 - v1);
-        // No need to normalize face_normal here, magnitude contributes to weighting
-
-        // Add face normal to each vertex normal
-        normals[i1] += face_normal;
-        normals[i2] += face_normal;
-        normals[i3] += face_normal;
+        
+        master_normals[i1] += face_normal;
+        master_normals[i2] += face_normal;
+        master_normals[i3] += face_normal;
     }
 
-    // Normalize the vertex normals
-    for (int i = 0; i < normals.size(); ++i) {
-        normals[i] = normals[i].normalized(); // Normalize the sum
+    // Normalize
+    for(int i=0; i<master_normals.size(); ++i) {
+        master_normals[i] = master_normals[i].normalized();
     }
 
 
-    // 3. Create the Mesh Surface using ArrayMesh
-    Array arrays; // Use TypedArray<Array>
-    arrays.resize(Mesh::ARRAY_MAX);
-    arrays[Mesh::ARRAY_VERTEX] = vertices;
-    for(int i = 1; i < Mesh::ARRAY_MAX; i++) {
-        arrays[i] = Variant();
-    }
-    arrays[Mesh::ARRAY_INDEX] = indices;
-    arrays[Mesh::ARRAY_NORMAL] = normals;
-    //arrays[Mesh::ARRAY_TEX_UV] = uvs;
-    //arrays[Mesh::ARRAY_BONES] = PackedFloat32Array(); // Optional: Bone indices if using skinning
-    //arrays[Mesh::ARRAY_WEIGHTS] = PackedFloat32Array();
+    // --- STEP 3: Split into Material Surfaces ---
+    std::map<int, SurfaceBuilder> surfaces;
 
-    // Get the mesh resource (should be an ArrayMesh)
+    int num_triangles = master_triangle_materials.size();
+    
+    for(int t = 0; t < num_triangles; ++t) {
+        int mat_id = master_triangle_materials[t];
+        SurfaceBuilder &surf = surfaces[mat_id];
+
+        // Process the 3 indices of this triangle
+        for(int k = 0; k < 3; ++k) {
+            int master_idx = master_indices[t * 3 + k];
+            
+            // Local Welding: Check if this master vertex is already in THIS surface
+            auto it = surf.index_cache.find(master_idx);
+            if (it != surf.index_cache.end()) {
+                // Reuse existing vertex in this surface
+                surf.indices.append(it->second);
+            } else {
+                // Add new vertex to this surface, copying data from Master
+                int new_surf_idx = surf.vertices.size();
+                
+                surf.vertices.append(master_vertices[master_idx]);
+                surf.normals.append(master_normals[master_idx]); // COPY THE SMOOTH NORMAL
+                
+                surf.indices.append(new_surf_idx);
+                surf.index_cache[master_idx] = new_surf_idx;
+            }
+        }
+    }
+
+    // --- STEP 4: Build Godot Mesh ---
     Ref<ArrayMesh> array_mesh = get_mesh();
-    //Ref<ArrayMesh> new_mesh;
-    //new_mesh.instantiate();
     if (!array_mesh.is_valid()) {
-         UtilityFunctions::printerr("MCChunk: Mesh is not a valid ArrayMesh!");
-         array_mesh.instantiate(); // Create a new one if it got lost somehow
+         array_mesh.instantiate();
          set_mesh(array_mesh);
-         if(!array_mesh.is_valid()) return; // Still failed
     }
-
-    // Clear previous surfaces and add the new one
     array_mesh->clear_surfaces();
-    array_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
 
-    // 4. Apply Material
-    if (terrain_material.is_valid()) {
-        // Use set_surface_override_material from MeshInstance3D
-        set_surface_override_material(0, terrain_material);
-    } else {
-        // Warning instead of error, as default material might be okay
-        // UtilityFunctions::printerr("MCChunk: TerrainMaterial is not set for chunk ", chunk_grid_offset);
+    // Prepare collision data (collects all verts again)
+    PackedVector3Array total_collision_vertices;
+    PackedInt32Array total_collision_indices;
+    int col_offset = 0;
+
+    // Iterate over our split surfaces
+    for (auto const& [mat_id, builder] : surfaces) {
+        if (builder.vertices.is_empty()) continue;
+
+        Array arrays;
+        arrays.resize(Mesh::ARRAY_MAX);
+        arrays[Mesh::ARRAY_VERTEX] = builder.vertices;
+        arrays[Mesh::ARRAY_NORMAL] = builder.normals;
+        arrays[Mesh::ARRAY_INDEX] = builder.indices;
+
+        // Generate Planar UVs
+        PackedVector2Array uvs;
+        uvs.resize(builder.vertices.size());
+        float uv_scale = voxel_size > 0 ? voxel_size : 1.0f;
+        for(int i=0; i < builder.vertices.size(); ++i) {
+            uvs[i] = Vector2(builder.vertices[i].x / uv_scale, builder.vertices[i].y / uv_scale);
+        }
+        arrays[Mesh::ARRAY_TEX_UV] = uvs;
+
+        // Create Surface
+        array_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
+
+        // Assign Material
+        if (mat_id >= 0 && mat_id < materials.size()) {
+            Ref<Material> mat = materials[mat_id];
+            if(mat.is_valid()) {
+                set_surface_override_material(array_mesh->get_surface_count() - 1, mat);
+            }
+        }
+
+        // Collect Collision Data
+        if (generate_collision || generate_occluder) {
+            total_collision_vertices.append_array(builder.vertices);
+            for(int idx : builder.indices) {
+                total_collision_indices.append(idx + col_offset);
+            }
+            col_offset += builder.vertices.size();
+        }
     }
 
-    // 5. Generate Collision!
-    if (generate_collision) {
-        _generate_collision(vertices, indices);
-    }
-
-    // 6. Generate Occluder
-    if (generate_occluder) {
-        _generate_occluder(vertices, indices);
-    }
-
-    //UtilityFunctions::print("Mesh generation complete for chunk at offset ", chunk_grid_offset, ". Verts: ", vertices.size(), ", Tris: ", indices.size() / 3);
+    // --- STEP 5: Generate Physics/Occlusion ---
+    if (generate_collision) _generate_collision(total_collision_vertices, total_collision_indices);
+    if (generate_occluder) _generate_occluder(total_collision_vertices, total_collision_indices);
 }
 
 
@@ -393,6 +472,119 @@ Vector3 MCChunk::_interpolate_vertex(const Vector3 &p1, const Vector3 &p2, float
 
     // Use Godot's lerp function (Vector3 has lerp)
     return p1.lerp(p2, t);
+}
+
+int MCChunk::_get_voxel_material_id(const Vector3i &local_pos) {
+    if (!density_grid.is_valid()) return 0;
+
+    // Convert local chunk position to global grid position
+    // chunk_grid_offset is already in voxel coordinates (e.g., 0, 16, 32) based on your implementation
+    Vector3i global_pos = chunk_grid_offset + local_pos;
+
+    // Query the DensityGrid
+    // Since get_material_id handles bounds checking internally, this is safe
+    return density_grid->get_material_id(global_pos);
+}
+
+Dictionary MCChunk::_march_cubes_multi_mat() {
+    // Map material index -> SurfaceData
+    std::map<int, SurfaceData> surfaces;
+    
+    if (!density_grid.is_valid()) return Dictionary();
+    
+    float surface = density_grid->get_surface_threshold();
+
+    // Corner offsets (same as before)
+    const Vector3i corner_offsets[8] = {
+        Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(1, 1, 0), Vector3i(0, 1, 0),
+        Vector3i(0, 0, 1), Vector3i(1, 0, 1), Vector3i(1, 1, 1), Vector3i(0, 1, 1)
+    };
+
+    for (int z = 0; z < chunk_size; ++z) {
+        for (int y = 0; y < chunk_size; ++y) {
+            for (int x = 0; x < chunk_size; ++x) {
+                Vector3i local_pos(x, y, z);
+                Vector3i world_pos_base = chunk_grid_offset + local_pos;
+
+                // --- Material Logic ---
+                // Determine which material this voxel belongs to.
+                // Note: In MC, a triangle might span two voxels. 
+                // We typically assign the triangle to the voxel containing the generated geometry.
+                int mat_idx = _get_voxel_material_id(local_pos);
+                
+                // Get or create the surface data for this material
+                SurfaceData &current_surface = surfaces[mat_idx];
+
+                // --- Standard MC Sampling (Same as your code) ---
+                float corner_values[8];
+                for (int i = 0; i < 8; ++i) {
+                    corner_values[i] = density_grid->get_cell(world_pos_base + corner_offsets[i], 1.0f);
+                }
+
+                int cube_index = 0;
+                for (int i = 0; i < 8; ++i) {
+                    if (corner_values[i] > surface) cube_index |= (1 << i);
+                }
+
+                const int* tri_table_row = McTables::TRI_TABLE[cube_index];
+                if (tri_table_row[0] == -1) continue;
+
+                Vector3 corner_locations_local[8];
+                for (int i = 0; i < 8; ++i) {
+                    corner_locations_local[i] = Vector3(local_pos + corner_offsets[i]) * voxel_size;
+                }
+
+                // --- Triangle Generation ---
+                for (int i = 0; tri_table_row[i] != -1; i += 3) {
+                    int triangle_indices[3];
+                    
+                    for (int j = 0; j < 3; ++j) {
+                        int edge_index = tri_table_row[i + j];
+                        
+                        // NOTE: To support multiple surfaces, each surface must have its own 
+                        // vertex cache. We cannot share vertices between different surfaces/draw calls.
+                        String edge_full_key = String::num_int64(world_pos_base.x) + "_" +
+                                               String::num_int64(world_pos_base.y) + "_" +
+                                               String::num_int64(world_pos_base.z) + "_" +
+                                               String::num_int64(edge_index);
+
+                        if (current_surface.vertex_cache.has(edge_full_key)) {
+                            triangle_indices[j] = (int)current_surface.vertex_cache[edge_full_key];
+                        } else {
+                            int corner_a_idx = McTables::CORNER_INDEX_A_FROM_EDGE[edge_index];
+                            int corner_b_idx = McTables::CORNER_INDEX_B_FROM_EDGE[edge_index];
+
+                            Vector3 vert_pos = _interpolate_vertex(
+                                corner_locations_local[corner_a_idx],
+                                corner_locations_local[corner_b_idx],
+                                corner_values[corner_a_idx],
+                                corner_values[corner_b_idx]
+                            );
+
+                            int new_vertex_index = current_surface.vertices.size();
+                            current_surface.vertices.append(vert_pos);
+                            current_surface.vertex_cache[edge_full_key] = new_vertex_index;
+                            triangle_indices[j] = new_vertex_index;
+                        }
+                    }
+
+                    current_surface.indices.append(triangle_indices[0]);
+                    current_surface.indices.append(triangle_indices[1]);
+                    current_surface.indices.append(triangle_indices[2]);
+                }
+            }
+        }
+    }
+
+    // Convert std::map to Godot Dictionary for return
+    Dictionary result;
+    for (auto const& [mat_idx, data] : surfaces) {
+        Dictionary surface_dict;
+        surface_dict["vertices"] = data.vertices;
+        surface_dict["indices"] = data.indices;
+        result[mat_idx] = surface_dict;
+    }
+    return result;
 }
 
 void MCChunk::_generate_mesh_with_compute() {
@@ -633,8 +825,11 @@ void MCChunk::_generate_mesh_with_compute() {
     array_mesh->clear_surfaces();
     array_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
 
-    if (terrain_material.is_valid()) {
-        set_surface_override_material(0, terrain_material);
+    if (materials.size() > 0) {
+        Ref<Material> mat = materials[0];
+        if (mat.is_valid()) {
+            set_surface_override_material(0, mat);
+        }
     }
 
     if (generate_collision) {
@@ -774,9 +969,6 @@ float MCChunk::get_voxel_size() const { return voxel_size; }
 void MCChunk::set_chunk_grid_offset(const Vector3i &p_offset) { chunk_grid_offset = p_offset; }
 Vector3i MCChunk::get_chunk_grid_offset() const { return chunk_grid_offset; }
 
-void MCChunk::set_terrain_material(const Ref<Material> &p_material) { terrain_material = p_material; }
-Ref<Material> MCChunk::get_terrain_material() const { return terrain_material; }
-
 void MCChunk::set_density_grid(const Ref<DensityGrid> &p_grid) { density_grid = p_grid; }
 Ref<DensityGrid> MCChunk::get_density_grid() const { return density_grid; }
 
@@ -795,6 +987,9 @@ void MCChunk::set_generate_occluder(bool p_generate) {
 bool MCChunk::get_generate_occluder() const {
     return generate_occluder;
 }
+
+void MCChunk::set_materials(const TypedArray<Material> &p_materials) { materials = p_materials; }
+TypedArray<Material> MCChunk::get_materials() const { return materials; }
 
 void MCChunk::set_compute_shader(const Ref<RDShaderFile> &p_shader) { compute_shader = p_shader; }
 Ref<RDShaderFile> MCChunk::get_compute_shader() const { return compute_shader; }

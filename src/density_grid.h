@@ -13,6 +13,7 @@ class DensityGrid : public Resource {
 
 private:
     PackedFloat32Array world_density_grid;
+    PackedByteArray world_material_grid;
     int grid_size_x = 0;
     int grid_size_y = 0;
     int grid_size_z = 0;
@@ -26,7 +27,7 @@ public:
     ~DensityGrid();
 
     // Initialization & Accessors
-    void initialize_grid(int size_x, int size_y, int size_z, float default_value = 1.0);
+    void initialize_grid(int size_x, int size_y, int size_z, float default_value = 1.0, int default_material_index = 0);
     bool is_valid_position(const Vector3i &pos) const; // Made const
     int get_index(const Vector3i &pos) const;          // Made const
     bool set_cell(const Vector3i &pos, float value);
@@ -48,6 +49,13 @@ public:
 
     void set_surface_threshold(float p_threshold);
     float get_surface_threshold() const;
+
+    void set_material_id(const Vector3i &pos, int material_index);
+    int get_material_id(const Vector3i &pos) const;
+    
+    // New Property Accessors
+    void set_world_material_grid(const PackedByteArray &p_grid);
+    PackedByteArray get_world_material_grid() const;
 };
 
 } // namespace godot

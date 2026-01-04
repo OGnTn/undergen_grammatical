@@ -18,7 +18,7 @@ void ChunkManager::init_chunks_batch(
     TypedArray<MCChunk> chunks_list,
     TypedArray<MCChunk> liquid_chunks_list,
     Ref<LevelDensityGrid> density_grid,
-    Ref<Material> terrain_material,
+    TypedArray<Material> terrain_materials,
     Ref<Material> liquid_material,
     Ref<RDShaderFile> compute_shader,
     int chunk_size,
@@ -79,7 +79,7 @@ void ChunkManager::init_chunks_batch(
                 chunk->set_chunk_size(chunk_size);
                 chunk->set_voxel_size(voxel_size);
                 chunk->set_chunk_grid_offset(grid_offset * chunk_size);
-                chunk->set_terrain_material(terrain_material);
+                chunk->set_materials(terrain_materials);
                 chunk->set_density_grid(density_grid);
                 chunk->set_generate_collision(true);
                 chunk->set_compute_shader(compute_shader);
@@ -121,7 +121,9 @@ void ChunkManager::init_chunks_batch(
                 int res_mult = density_grid->get_liquid_resolution_multiplier();
                 liquid_chunk->set_voxel_size(voxel_size / (float)res_mult);
                 liquid_chunk->set_chunk_grid_offset(grid_offset * chunk_size);
-                liquid_chunk->set_terrain_material(liquid_material);
+                TypedArray<Material> liquid_mats;
+                liquid_mats.append(liquid_material);
+                liquid_chunk->set_materials(liquid_mats);
                 liquid_chunk->set_generate_collision(false);
                 liquid_chunk->set_generate_occluder(false);
                 liquid_chunk->set_position(pos);

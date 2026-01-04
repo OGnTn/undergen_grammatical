@@ -16,7 +16,7 @@ DensityGrid::~DensityGrid() {
 
 void DensityGrid::_bind_methods() {
     // Methods
-    ClassDB::bind_method(D_METHOD("initialize_grid", "size_x", "size_y", "size_z", "default_value"), &DensityGrid::initialize_grid, DEFVAL(1.0));
+    ClassDB::bind_method(D_METHOD("initialize_grid", "size_x", "size_y", "size_z", "default_value", "default_material_index"), &DensityGrid::initialize_grid, DEFVAL(1.0), DEFVAL(0));
     ClassDB::bind_method(D_METHOD("is_valid_position", "pos"), &DensityGrid::is_valid_position);
     ClassDB::bind_method(D_METHOD("get_index", "pos"), &DensityGrid::get_index);
     ClassDB::bind_method(D_METHOD("set_cell", "pos", "value"), &DensityGrid::set_cell);
@@ -43,16 +43,25 @@ void DensityGrid::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_surface_threshold", "threshold"), &DensityGrid::set_surface_threshold);
     ClassDB::bind_method(D_METHOD("get_surface_threshold"), &DensityGrid::get_surface_threshold);
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "surface_threshold"), "set_surface_threshold", "get_surface_threshold");
+
+    ClassDB::bind_method(D_METHOD("set_material_id", "pos", "material_index"), &DensityGrid::set_material_id);
+    ClassDB::bind_method(D_METHOD("get_material_id", "pos"), &DensityGrid::get_material_id);
+
+    // 3. Bind new property
+    ClassDB::bind_method(D_METHOD("set_world_material_grid", "grid"), &DensityGrid::set_world_material_grid);
+    ClassDB::bind_method(D_METHOD("get_world_material_grid"), &DensityGrid::get_world_material_grid);
+    ADD_PROPERTY(PropertyInfo(Variant::PACKED_BYTE_ARRAY, "world_material_grid"), "set_world_material_grid", "get_world_material_grid");
 }
 
 
-void DensityGrid::initialize_grid(int size_x, int size_y, int size_z, float default_value) {
+void DensityGrid::initialize_grid(int size_x, int size_y, int size_z, float default_value, int default_material_index) {
     if (size_x <= 0 || size_y <= 0 || size_z <= 0) {
         UtilityFunctions::printerr("DensityGrid.initialize_grid: Invalid dimensions provided (", size_x, ", ", size_y, ", ", size_z, ").");
         grid_size_x = 0;
         grid_size_y = 0;
         grid_size_z = 0;
         world_density_grid.clear(); // Use clear instead of resize(0)
+        world_material_grid.clear();
         return;
     }
 
@@ -63,6 +72,9 @@ void DensityGrid::initialize_grid(int size_x, int size_y, int size_z, float defa
     int64_t total_grid_points = (int64_t)grid_size_x * grid_size_y * grid_size_z; // Use int64_t for potentially large sizes
     world_density_grid.resize(total_grid_points);
     world_density_grid.fill(default_value); // fill exists for PackedFloat32Array
+
+    world_material_grid.resize(total_grid_points);
+    world_material_grid.fill(default_material_index);
 
     UtilityFunctions::print("Initialized density grid of size ", grid_size_x, " x ", grid_size_y, " x ", grid_size_z, " = ", total_grid_points, " points with value ", default_value);
 }
@@ -136,6 +148,32 @@ void DensityGrid::set_world_density_grid(const PackedFloat32Array &p_grid) {
 
 PackedFloat32Array DensityGrid::get_world_density_grid() const {
     return world_density_grid;
+}
+
+void DensityGrid::set_material_id(const Vector3i &pos, int material_index) {
+    int index = get_index(pos);
+    if (index != -1 && index < world_material_grid.size()) {
+        // Clamp to Byte range (0-255)
+        if (material_index < 0) material_index = 0;
+        if (material_index > 255) material_index = 255;
+        world_material_grid[index] = (uint8_t)material_index;
+    }
+}
+
+int DensityGrid::get_material_id(const Vector3i &pos) const {
+    int index = get_index(pos);
+    if (index != -1 && index < world_material_grid.size()) {
+        return (int)world_material_grid[index];
+    }
+    return 0; // Default fallback
+}
+
+void DensityGrid::set_world_material_grid(const PackedByteArray &p_grid) {
+    world_material_grid = p_grid;
+}
+
+PackedByteArray DensityGrid::get_world_material_grid() const {
+    return world_material_grid;
 }
 
 void DensityGrid::set_grid_size_x(int p_x) { grid_size_x = p_x > 0 ? p_x : 0; }

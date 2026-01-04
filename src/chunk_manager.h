@@ -24,7 +24,7 @@ public:
         TypedArray<MCChunk> chunks_list,
         TypedArray<MCChunk> liquid_chunks_list,
         Ref<LevelDensityGrid> density_grid,
-        Ref<Material> terrain_material,
+        TypedArray<Material> terrain_materials,
         Ref<Material> liquid_material,
         Ref<RDShaderFile> compute_shader,
         int chunk_size,
