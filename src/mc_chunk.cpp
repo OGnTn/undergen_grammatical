@@ -11,6 +11,8 @@
 #include <godot_cpp/classes/array_mesh.hpp> // Added for ArrayMesh type
 #include <godot_cpp/classes/occluder_instance3d.hpp> // For occluder node
 #include <godot_cpp/classes/array_occluder3d.hpp>   // For occluder shape
+#include <godot_cpp/classes/rd_shader_spirv.hpp>
+#include <godot_cpp/classes/rd_uniform.hpp>
 
 namespace godot {
 
@@ -70,6 +72,10 @@ void MCChunk::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_generate_occluder", "enable"), &MCChunk::set_generate_occluder);
     ClassDB::bind_method(D_METHOD("get_generate_occluder"), &MCChunk::get_generate_occluder);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_occluder"), "set_generate_occluder", "get_generate_occluder");
+
+    ClassDB::bind_method(D_METHOD("set_compute_shader", "shader"), &MCChunk::set_compute_shader);
+    ClassDB::bind_method(D_METHOD("get_compute_shader"), &MCChunk::get_compute_shader);
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "compute_shader", PROPERTY_HINT_RESOURCE_TYPE, "RDShaderFile"), "set_compute_shader", "get_compute_shader");
 }
 
 void MCChunk::generate_mesh_from_density_grid() {
@@ -90,6 +96,13 @@ void MCChunk::generate_mesh_from_density_grid() {
         if (current_mesh.is_valid()) {
             current_mesh->clear_surfaces();
         }
+        return;
+    }
+
+    // Try Compute Shader first
+    if (compute_shader.is_valid()) {
+        _generate_mesh_with_compute();
+        // _generate_mesh_with_compute handles mesh assignment, collision, and occluder internally
         return;
     }
 
@@ -382,6 +395,240 @@ Vector3 MCChunk::_interpolate_vertex(const Vector3 &p1, const Vector3 &p2, float
     return p1.lerp(p2, t);
 }
 
+void MCChunk::_generate_mesh_with_compute() {
+    RenderingDevice *rd = RenderingServer::get_singleton()->get_rendering_device();
+    if (!rd) return;
+
+    Ref<RDShaderSPIRV> shader_spirv = compute_shader->get_spirv();
+    if (shader_spirv.is_null()) return;
+
+    RID shader_rid = rd->shader_create_from_spirv(shader_spirv);
+    if (!shader_rid.is_valid()) return;
+
+    // 1. Prepare Buffers
+    
+    // A. Density Grid Buffer
+    PackedFloat32Array density_data = density_grid->get_world_density_grid();
+    PackedByteArray density_bytes = density_data.to_byte_array();
+    RID density_buffer = rd->storage_buffer_create(density_bytes.size(), density_bytes);
+
+    // B. Triangulation Table Buffer
+    // Flatten the 2D array from McTables
+    PackedInt32Array tri_table_flat;
+    tri_table_flat.resize(256 * 16);
+    for (int i = 0; i < 256; ++i) {
+        for (int j = 0; j < 16; ++j) {
+            tri_table_flat[i * 16 + j] = McTables::TRI_TABLE[i][j];
+        }
+    }
+    PackedByteArray tri_table_bytes = tri_table_flat.to_byte_array();
+    RID tri_table_buffer = rd->storage_buffer_create(tri_table_bytes.size(), tri_table_bytes);
+
+    // C. Output Vertex Buffer
+    // Estimate max size: chunk_size^3 * 5 triangles * 3 verts * 3 floats * 4 bytes
+    // This is a worst-case allocation.
+    int max_verts = chunk_size * chunk_size * chunk_size * 15; 
+    int vert_buffer_size = max_verts * 3 * sizeof(float);
+    RID vertex_buffer = rd->storage_buffer_create(vert_buffer_size);
+
+    // D. Counter Buffer (Atomic)
+    PackedByteArray counter_bytes;
+    counter_bytes.resize(4); // uint32
+    counter_bytes.encode_u32(0, 0);
+    RID counter_buffer = rd->storage_buffer_create(4, counter_bytes);
+
+    // 2. Uniform Sets
+    Ref<RDUniform> u_density;
+    u_density.instantiate();
+    u_density->set_uniform_type(RenderingDevice::UNIFORM_TYPE_STORAGE_BUFFER);
+    u_density->set_binding(0);
+    u_density->add_id(density_buffer);
+
+    Ref<RDUniform> u_table;
+    u_table.instantiate();
+    u_table->set_uniform_type(RenderingDevice::UNIFORM_TYPE_STORAGE_BUFFER);
+    u_table->set_binding(1);
+    u_table->add_id(tri_table_buffer);
+
+    Ref<RDUniform> u_verts;
+    u_verts.instantiate();
+    u_verts->set_uniform_type(RenderingDevice::UNIFORM_TYPE_STORAGE_BUFFER);
+    u_verts->set_binding(2);
+    u_verts->add_id(vertex_buffer);
+
+    Ref<RDUniform> u_counter;
+    u_counter.instantiate();
+    u_counter->set_uniform_type(RenderingDevice::UNIFORM_TYPE_STORAGE_BUFFER);
+    u_counter->set_binding(3);
+    u_counter->add_id(counter_buffer);
+
+    Array uniforms;
+    uniforms.push_back(u_density);
+    uniforms.push_back(u_table);
+    uniforms.push_back(u_verts);
+    uniforms.push_back(u_counter);
+
+    RID uniform_set = rd->uniform_set_create(uniforms, shader_rid, 0);
+
+    // 3. Push Constants
+    struct PushConstants {
+        int chunk_size_x;
+        int chunk_size_y;
+        int chunk_size_z;
+        int grid_dim_x;
+        int grid_dim_y;
+        int grid_dim_z;
+        int offset_x;
+        int offset_y;
+        int offset_z;
+        float voxel_size;
+        float surface_level;
+    } push_constants;
+
+    push_constants.chunk_size_x = chunk_size;
+    push_constants.chunk_size_y = chunk_size;
+    push_constants.chunk_size_z = chunk_size;
+    push_constants.grid_dim_x = density_grid->get_grid_size_x();
+    push_constants.grid_dim_y = density_grid->get_grid_size_y();
+    push_constants.grid_dim_z = density_grid->get_grid_size_z();
+    push_constants.offset_x = chunk_grid_offset.x;
+    push_constants.offset_y = chunk_grid_offset.y;
+    push_constants.offset_z = chunk_grid_offset.z;
+    push_constants.voxel_size = voxel_size;
+    push_constants.surface_level = density_grid->get_surface_threshold();
+
+    PackedByteArray push_constant_bytes;
+    push_constant_bytes.resize(sizeof(PushConstants));
+    memcpy(push_constant_bytes.ptrw(), &push_constants, sizeof(PushConstants));
+
+    // 4. Dispatch
+    RID pipeline = rd->compute_pipeline_create(shader_rid);
+    int64_t compute_list = rd->compute_list_begin();
+    rd->compute_list_bind_compute_pipeline(compute_list, pipeline);
+    rd->compute_list_bind_uniform_set(compute_list, uniform_set, 0);
+    rd->compute_list_set_push_constant(compute_list, push_constant_bytes, sizeof(PushConstants));
+    
+    // Workgroup size is 4x4x4 = 64.
+    int groups_x = (chunk_size + 3) / 4;
+    int groups_y = (chunk_size + 3) / 4;
+    int groups_z = (chunk_size + 3) / 4;
+    rd->compute_list_dispatch(compute_list, groups_x, groups_y, groups_z);
+    rd->compute_list_end();
+
+    // 5. Sync and Readback
+    rd->submit();
+    rd->sync(); // Block until done
+
+    // Read counter
+    PackedByteArray counter_output = rd->buffer_get_data(counter_buffer);
+    uint32_t vertex_count = counter_output.decode_u32(0);
+
+    if (vertex_count == 0) {
+        Ref<ArrayMesh> current_mesh = get_mesh();
+        if (current_mesh.is_valid()) current_mesh->clear_surfaces();
+        _clear_collision();
+        _clear_occluder();
+        // Cleanup RIDs
+        rd->free_rid(shader_rid);
+        rd->free_rid(density_buffer);
+        rd->free_rid(tri_table_buffer);
+        rd->free_rid(vertex_buffer);
+        rd->free_rid(counter_buffer);
+        return;
+    }
+
+    // Read vertices
+    // We only need to read up to vertex_count * 3 floats * 4 bytes
+    PackedByteArray vertex_bytes = rd->buffer_get_data(vertex_buffer, 0, vertex_count * 3 * sizeof(float));
+    PackedVector3Array raw_vertices;
+    // Convert bytes to Vector3 array
+    // Note: PackedVector3Array.resize() initializes, we can use direct pointer access or loop
+    raw_vertices.resize(vertex_count);
+    const float *float_ptr = reinterpret_cast<const float*>(vertex_bytes.ptr());
+    for(uint32_t i=0; i<vertex_count; ++i) {
+        raw_vertices[i] = Vector3(float_ptr[i*3], float_ptr[i*3+1], float_ptr[i*3+2]);
+    }
+
+    // Cleanup GPU resources
+    rd->free_rid(shader_rid);
+    rd->free_rid(density_buffer);
+    rd->free_rid(tri_table_buffer);
+    rd->free_rid(vertex_buffer);
+    rd->free_rid(counter_buffer);
+
+    // 6. Post-Process (Weld vertices for smooth normals and indexing)
+    PackedVector3Array final_vertices;
+    PackedInt32Array final_indices;
+    PackedVector3Array final_normals;
+    std::map<Vector3, int> vertex_map;
+
+    final_normals.resize(vertex_count); // Will resize down later, but safe max
+
+    for (int i = 0; i < raw_vertices.size(); i += 3) {
+        Vector3 v1 = raw_vertices[i];
+        Vector3 v2 = raw_vertices[i+1];
+        Vector3 v3 = raw_vertices[i+2];
+        Vector3 face_normal = (v2 - v1).cross(v3 - v1); // Weighted by area
+
+        int idx[3];
+        Vector3 verts[3] = {v1, v2, v3};
+
+        for(int j=0; j<3; ++j) {
+            if(vertex_map.find(verts[j]) == vertex_map.end()) {
+                int new_idx = final_vertices.size();
+                final_vertices.append(verts[j]);
+                final_normals.append(Vector3(0,0,0)); // Init normal
+                vertex_map[verts[j]] = new_idx;
+                idx[j] = new_idx;
+            } else {
+                idx[j] = vertex_map[verts[j]];
+            }
+            final_indices.append(idx[j]);
+            final_normals[idx[j]] += face_normal;
+        }
+    }
+
+    // Normalize normals
+    for(int i=0; i<final_normals.size(); ++i) {
+        final_normals[i] = final_normals[i].normalized();
+    }
+
+    // 7. Create Mesh
+    Array arrays;
+    arrays.resize(Mesh::ARRAY_MAX);
+    arrays[Mesh::ARRAY_VERTEX] = final_vertices;
+    arrays[Mesh::ARRAY_INDEX] = final_indices;
+    arrays[Mesh::ARRAY_NORMAL] = final_normals;
+
+    // UVs (Planar)
+    PackedVector2Array uvs;
+    uvs.resize(final_vertices.size());
+    float uv_scale = voxel_size > 0 ? voxel_size : 1.0f;
+    for(int i=0; i<final_vertices.size(); ++i) {
+        uvs[i] = Vector2(final_vertices[i].x / uv_scale, final_vertices[i].y / uv_scale);
+    }
+    // arrays[Mesh::ARRAY_TEX_UV] = uvs; // Uncomment if needed
+
+    Ref<ArrayMesh> array_mesh = get_mesh();
+    if (!array_mesh.is_valid()) {
+         array_mesh.instantiate();
+         set_mesh(array_mesh);
+    }
+    array_mesh->clear_surfaces();
+    array_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
+
+    if (terrain_material.is_valid()) {
+        set_surface_override_material(0, terrain_material);
+    }
+
+    if (generate_collision) {
+        _generate_collision(final_vertices, final_indices);
+    }
+    if (generate_occluder) {
+        _generate_occluder(final_vertices, final_indices);
+    }
+}
+
 
 // --- Collision Generation Implementation ---
 void MCChunk::_generate_collision(const PackedVector3Array &p_vertices, const PackedInt32Array &p_indices) {
@@ -532,5 +779,8 @@ void MCChunk::set_generate_occluder(bool p_generate) {
 bool MCChunk::get_generate_occluder() const {
     return generate_occluder;
 }
+
+void MCChunk::set_compute_shader(const Ref<RDShaderFile> &p_shader) { compute_shader = p_shader; }
+Ref<RDShaderFile> MCChunk::get_compute_shader() const { return compute_shader; }
 
 } // namespace godot

@@ -15,6 +15,9 @@
 #include <godot_cpp/classes/collision_shape3d.hpp>     // Added for collision node
 #include <godot_cpp/classes/occluder_instance3d.hpp>    // For occluder node
 #include <godot_cpp/classes/array_occluder3d.hpp>     // For occluder shape
+#include <godot_cpp/classes/rd_shader_file.hpp>
+#include <godot_cpp/classes/rendering_device.hpp>
+#include <godot_cpp/classes/rendering_server.hpp>
 
 #include "density_grid.h"
 #include "level_density_grid.h"
@@ -33,6 +36,7 @@ private:
     bool smooth_normals = true;
     bool generate_collision = true;
     bool generate_occluder = true; // Added property for occluder generation
+    Ref<RDShaderFile> compute_shader;
 
     Ref<DensityGrid> density_grid;
     Ref<ConcavePolygonShape3D> collision_shape; // Member to hold the collision shape resource
@@ -40,6 +44,7 @@ private:
 
     Dictionary _march_cubes();
     Vector3 _interpolate_vertex(const Vector3 &p1, const Vector3 &p2, float val1, float val2);
+    void _generate_mesh_with_compute();
 
     // --- Private method declarations for collision ---
     void _generate_collision(const PackedVector3Array &p_vertices, const PackedInt32Array &p_indices);
@@ -81,6 +86,10 @@ public:
     // New getter/setter for generate_occluder
     void set_generate_occluder(bool p_generate);
     bool get_generate_occluder() const;
+
+    // Compute Shader
+    void set_compute_shader(const Ref<RDShaderFile> &p_shader);
+    Ref<RDShaderFile> get_compute_shader() const;
 };
 
 } // namespace godot

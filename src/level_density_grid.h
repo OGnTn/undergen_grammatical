@@ -67,7 +67,7 @@ private:
     // --- Internal Helper Functions ---
     void _generate_rooms_and_paths(float voxel_size);
     void _apply_noise();
-    void _mark_brush(const Vector3i &center, int radius_lower, int radius_higher, float value);
+
     void _create_room(const Dictionary &room);
     Dictionary _pick_room();
     bool _check_overlap(const Dictionary &new_room, const TypedArray<Dictionary> &generated_rooms);
@@ -92,6 +92,7 @@ public:
     Vector3 get_calculated_end_position() const;
     Dictionary get_surface_normals() const;
 
+    void _mark_brush(const Vector3i &center, int radius_lower, int radius_higher, float value);
     Vector3i _find_ground_position(const Vector3i &start_pos);
     void set_noise_scale(float p_scale);
     float get_noise_scale() const;

@@ -36,7 +36,7 @@ LevelDensityGrid::~LevelDensityGrid() {
 void LevelDensityGrid::_bind_methods() {
     // --- Main Generation Function ---
     ClassDB::bind_method(D_METHOD("generate_level_data", "world_grid_dimensions", "voxel_size", "seed"), &LevelDensityGrid::generate_level_data);
-
+    ClassDB::bind_method(D_METHOD("_mark_brush", "center", "radius_lower", "radius_higher", "value"), &LevelDensityGrid::_mark_brush);
     // --- Getters for Runtime Data ---
     ClassDB::bind_method(D_METHOD("get_calculated_spawn_position"), &LevelDensityGrid::get_calculated_spawn_position);
     ClassDB::bind_method(D_METHOD("get_calculated_end_position"), &LevelDensityGrid::get_calculated_end_position);
