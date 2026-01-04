@@ -396,7 +396,16 @@ Vector3 MCChunk::_interpolate_vertex(const Vector3 &p1, const Vector3 &p2, float
 }
 
 void MCChunk::_generate_mesh_with_compute() {
-    RenderingDevice *rd = RenderingServer::get_singleton()->get_rendering_device();
+    // 1. Use a LOCAL RenderingDevice.
+    // We use a static raw pointer because RenderingDevice is NOT RefCounted.
+    static RenderingDevice* local_rd = nullptr;
+    
+    if (local_rd == nullptr) {
+        local_rd = RenderingServer::get_singleton()->create_local_rendering_device();
+    }
+    
+    // Use the local device pointer
+    RenderingDevice *rd = local_rd;
     if (!rd) return;
 
     Ref<RDShaderSPIRV> shader_spirv = compute_shader->get_spirv();
@@ -483,6 +492,7 @@ void MCChunk::_generate_mesh_with_compute() {
         int offset_z;
         float voxel_size;
         float surface_level;
+        float padding;
     } push_constants;
 
     push_constants.chunk_size_x = chunk_size;
@@ -541,8 +551,6 @@ void MCChunk::_generate_mesh_with_compute() {
     // We only need to read up to vertex_count * 3 floats * 4 bytes
     PackedByteArray vertex_bytes = rd->buffer_get_data(vertex_buffer, 0, vertex_count * 3 * sizeof(float));
     PackedVector3Array raw_vertices;
-    // Convert bytes to Vector3 array
-    // Note: PackedVector3Array.resize() initializes, we can use direct pointer access or loop
     raw_vertices.resize(vertex_count);
     const float *float_ptr = reinterpret_cast<const float*>(vertex_bytes.ptr());
     for(uint32_t i=0; i<vertex_count; ++i) {
@@ -562,28 +570,36 @@ void MCChunk::_generate_mesh_with_compute() {
     PackedVector3Array final_normals;
     std::map<Vector3, int> vertex_map;
 
-    final_normals.resize(vertex_count); // Will resize down later, but safe max
-
     for (int i = 0; i < raw_vertices.size(); i += 3) {
         Vector3 v1 = raw_vertices[i];
         Vector3 v2 = raw_vertices[i+1];
         Vector3 v3 = raw_vertices[i+2];
-        Vector3 face_normal = (v2 - v1).cross(v3 - v1); // Weighted by area
+        
+        // Calculate Face Normal
+        Vector3 face_normal = (v2 - v1).cross(v3 - v1); 
 
         int idx[3];
         Vector3 verts[3] = {v1, v2, v3};
 
         for(int j=0; j<3; ++j) {
             if(vertex_map.find(verts[j]) == vertex_map.end()) {
+                // New unique vertex found
                 int new_idx = final_vertices.size();
                 final_vertices.append(verts[j]);
-                final_normals.append(Vector3(0,0,0)); // Init normal
+                
+                // Initialize normal for this NEW vertex
+                final_normals.append(Vector3(0,0,0)); 
+                
                 vertex_map[verts[j]] = new_idx;
                 idx[j] = new_idx;
             } else {
+                // Existing vertex found
                 idx[j] = vertex_map[verts[j]];
             }
+            
             final_indices.append(idx[j]);
+            
+            // Accumulate normal for this existing/new vertex
             final_normals[idx[j]] += face_normal;
         }
     }

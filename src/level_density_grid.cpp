@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <cmath>
 #include <unordered_set>
+#include <godot_cpp/classes/time.hpp>
 
 namespace godot {
 
@@ -167,6 +168,12 @@ void LevelDensityGrid::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_liquid_resolution_multiplier", "multiplier"), &LevelDensityGrid::set_liquid_resolution_multiplier);
     ClassDB::bind_method(D_METHOD("get_liquid_resolution_multiplier"), &LevelDensityGrid::get_liquid_resolution_multiplier);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "liquid_resolution_multiplier", PROPERTY_HINT_RANGE, "1,8,1"), "set_liquid_resolution_multiplier", "get_liquid_resolution_multiplier");
+
+    ClassDB::bind_method(D_METHOD("set_dungeon_path_algorithm", "algo"), &LevelDensityGrid::set_dungeon_path_algorithm);
+    ClassDB::bind_method(D_METHOD("get_dungeon_path_algorithm"), &LevelDensityGrid::get_dungeon_path_algorithm);
+    
+    // Add a dropdown list to the inspector
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "dungeon_path_algorithm", PROPERTY_HINT_ENUM, "AStar (Slow/Optimal),Castle (Fast/Recursive)"), "set_dungeon_path_algorithm", "get_dungeon_path_algorithm");
 }
 
 // --- Main Generation Function ---
@@ -178,31 +185,62 @@ void LevelDensityGrid::generate_level_data(const Vector3i &world_grid_dimensions
 
     UtilityFunctions::print("Generating Level Data for Grid Size: ", world_grid_dimensions, " with seed: ", seed);
 
-    // 1. Seed the generators for deterministic output
-    set_noise_seed(seed); // This uses the existing setter, which takes an int. The cast is acceptable.
-    // Ensure RNG is ready and seeded
+    // --- PROFILING START ---
+    Time* time = Time::get_singleton();
+    uint64_t start_total = time->get_ticks_msec();
+    
+    uint64_t t_init_grid = 0;
+    uint64_t t_rooms_paths = 0;
+    uint64_t t_smoothing = 0;
+    uint64_t t_normals = 0;
+
+    // 1. Initialize & Seed
+    uint64_t t1 = time->get_ticks_usec();
+    
+    set_noise_seed(seed);
     if (!rng.is_valid()) {
         rng.instantiate();
         UtilityFunctions::printerr("LevelDensityGrid: RNG was invalid, re-initialized.");
     }
-    rng->set_seed(seed); // Set the seed for the RandomNumberGenerator
+    rng->set_seed(seed);
 
-    // 2. Initialize Grid - Make it solid initially
     initialize_grid(world_grid_dimensions.x, world_grid_dimensions.y, world_grid_dimensions.z, WORLD_SOLID_VALUE);
+    
+    uint64_t t2 = time->get_ticks_usec();
+    t_init_grid = (t2 - t1);
 
-    // 3. Generate Rooms and Paths
+    // 2. Generate Rooms and Paths (This includes A* if in dungeon mode)
     _generate_rooms_and_paths(voxel_size);
+    
+    uint64_t t3 = time->get_ticks_usec();
+    t_rooms_paths = (t3 - t2);
 
-    // 4. Optional Smoothing
-    if (smooth_terrain && !use_square_brush) { // Smoothing doesn't make sense for square corridors
+    // 3. Optional Smoothing
+    if (smooth_terrain && !use_square_brush) {
         UtilityFunctions::print("Smoothing terrain with strength: ", smoothing_strength);
         low_pass();
     }
+    
+    uint64_t t4 = time->get_ticks_usec();
+    t_smoothing = (t4 - t3);
 
-    // 5. Calculate Surface Normals
+    // 4. Calculate Surface Normals
     _calculate_surface_normals();
+    
+    uint64_t t5 = time->get_ticks_usec();
+    t_normals = (t5 - t4);
 
-    UtilityFunctions::print("Level Data Generation Complete. Spawn: ", calculated_spawn_position, ", End: ", calculated_end_position);
+    uint64_t end_total = time->get_ticks_msec();
+
+    // --- PRINT REPORT ---
+    UtilityFunctions::print("=== Generation Profiling ===");
+    UtilityFunctions::print("Total Time:      ", end_total - start_total, " ms");
+    UtilityFunctions::print("---------------------------");
+    UtilityFunctions::print("Grid Init:       ", t_init_grid / 1000, " ms");
+    UtilityFunctions::print("Rooms & Paths:   ", t_rooms_paths / 1000, " ms");
+    UtilityFunctions::print("Smoothing:       ", t_smoothing / 1000, " ms");
+    UtilityFunctions::print("Surface Normals: ", t_normals / 1000, " ms");
+    UtilityFunctions::print("===========================");
 }
 
 bool LevelDensityGrid::_is_space_free(const Vector3i& high_res_pos, const PackedFloat32Array& liquid_data, int resolution_mult) {
@@ -542,8 +580,14 @@ void LevelDensityGrid::_generate_rooms_and_paths(float voxel_size) {
         }
 
         if (dungeon_mode) {
-            // Carve axis-aligned rectangular corridors with 90-degree turns and staircases for vertical movement.
-            _carve_dungeon_path(path_start_point, path_end_point);
+            // [UPDATED] Switch between algorithms
+            if (dungeon_path_algorithm == ALGO_CASTLE_RECURSIVE) {
+                // New Recursive Logic
+                _carve_path_castle(path_start_point, path_end_point);
+            } else {
+                // Your Existing A* Logic (Legacy)
+                _carve_dungeon_path(path_start_point, path_end_point);
+            }
         } else {
             std::vector<Vector3> path_nodes;
             path_nodes.push_back(path_start_point);
@@ -864,6 +908,8 @@ struct PathNode {
 
 // --- Main Path Carving Function ---
 void LevelDensityGrid::_carve_dungeon_path(const Vector3 &start, const Vector3 &end) {
+    Time* time = Time::get_singleton();
+    uint64_t t_start = time->get_ticks_usec();
     Vector3i start_i = Vector3i(start);
     Vector3i end_i = Vector3i(end);
     
@@ -885,7 +931,8 @@ void LevelDensityGrid::_carve_dungeon_path(const Vector3 &start, const Vector3 &
     struct DungeonNode {
         Vector3i pos;
         Vector3i entered_from; 
-        int g;                  
+        int g;
+        int h; // [NEW] Heuristic cost to target
         
         int straight_dist;      
         int dist_since_stair;   
@@ -894,8 +941,13 @@ void LevelDensityGrid::_carve_dungeon_path(const Vector3 &start, const Vector3 &
         
         Vector3i parent_pos;
 
+        // Calculates F-score (Total estimated cost)
+        int f() const { return g + h; }
+
+        // Priority Queue puts SMALLEST item at top.
+        // So 'greater' operator must return true if THIS > OTHER
         bool operator>(const DungeonNode& other) const { 
-            return g > other.g; 
+            return f() > other.f(); 
         }
     };
 
@@ -905,37 +957,48 @@ void LevelDensityGrid::_carve_dungeon_path(const Vector3 &start, const Vector3 &
         return (int64_t)v.z * gsx * gsy + (int64_t)v.y * gsx + v.x; 
     };
     
-    std::unordered_map<int64_t, int> closed_set_g;
+    int total_voxels = gsx * gsy * gsz;
+    std::vector<int> closed_set_g(total_voxels, 2147483647);
 
     // --- CONFIGURABLE WEIGHTS ---
     const int COST_MOVE_BASE = 10;
     
-    const int COST_TURN_BASE = 500;       
-    const int COST_TURN_DECAY = 40;       
-    const int COST_TURN_MIN = 20;         
+    // REDUCED from 500 to 100. Turns are still discouraged, but not "impossible"
+    const int COST_TURN_BASE = 100;       
+    const int COST_TURN_DECAY = 20;       
+    const int COST_TURN_MIN = 10;         
 
-    const int COST_STAIR_START_BASE = 1000; 
+    const int COST_STAIR_START_BASE = 500; // Reduced from 1000
     const int COST_STAIR_START_DECAY = 50;  
     const int COST_STAIR_START_MIN = 50;
     
     const int COST_STAIR_STEP_BASE = 20;    
-    const int COST_STAIR_LEN_PENALTY = 50;  // Increased penalty for long stairs
+    const int COST_STAIR_LEN_PENALTY = 10;
 
-    const int COST_ROOM_PENALTY = 5000;     
+    // Reduced from 5000. 
+    // If this is too high, it creates "invisible walls" that A* desperately tries to flood-fill around.
+    const int COST_ROOM_PENALTY = 500;
+    const float HEURISTIC_WEIGHT = 10.0f;
+
+    int start_h = (Math::abs(start_i.x - end_i.x) + 
+                   Math::abs(start_i.y - end_i.y) + 
+                   Math::abs(start_i.z - end_i.z)) * COST_MOVE_BASE * HEURISTIC_WEIGHT; // <--- Multiply here
 
     DungeonNode start_node = {
-        start_i, Vector3i(0,0,0), 0, 
+        start_i, Vector3i(0,0,0), 0, start_h, // Pass 'start_h' here
         0, 100, 0, false, start_i
     };
     
     open_set.push(start_node);
-    closed_set_g[get_idx(start_i)] = 0;
+    int64_t start_idx = get_idx(start_i);
+    closed_set_g[start_idx] = 0;
     std::unordered_map<int64_t, DungeonNode> came_from;
 
     DungeonNode final_node;
     bool found = false;
     int max_iterations = 2000000; 
     int iter = 0;
+    int iterations = 0;
 
     while (!open_set.empty() && iter < max_iterations) {
         iter++;
@@ -1042,10 +1105,16 @@ void LevelDensityGrid::_carve_dungeon_path(const Vector3 &start, const Vector3 &
                 int new_g = current.g + move_cost;
                 int64_t n_idx = get_idx(next_pos);
 
-                if (closed_set_g.find(n_idx) == closed_set_g.end() || new_g < closed_set_g[n_idx]) {
+                if (new_g < closed_set_g[n_idx]) {
                     closed_set_g[n_idx] = new_g;
+                    
+                    // [NEW] Calculate Heuristic for neighbor
+                    int new_h = (Math::abs(next_pos.x - end_i.x) + 
+                                 Math::abs(next_pos.y - end_i.y) + 
+                                 Math::abs(next_pos.z - end_i.z)) * COST_MOVE_BASE * HEURISTIC_WEIGHT; // <--- Multiply here
+
                     DungeonNode next_node = {
-                        next_pos, new_entered_from, new_g,
+                        next_pos, new_entered_from, new_g, new_h,
                         new_straight_dist, new_dist_since_stair, new_stair_len, 
                         opt.is_stair, current.pos
                     };
@@ -1054,6 +1123,12 @@ void LevelDensityGrid::_carve_dungeon_path(const Vector3 &start, const Vector3 &
                 }
             }
         }
+        iterations++;
+    }
+
+    uint64_t t_end = time->get_ticks_usec();
+    if ((t_end - t_start) > 10000) {
+        UtilityFunctions::print("Slow Path Carve: ", (t_end - t_start) / 1000, " ms. Iterations: ", iterations);
     }
 
     if (found) {
@@ -1140,7 +1215,8 @@ void LevelDensityGrid::_carve_corridor_segment(const Vector3i &from, const Vecto
         return;
     }
 
-    // If movement spans multiple axes, split into axis-aligned segments (X -> Z -> Y)
+    // Split diagonal horizontal segments (preserves L-shape logic)
+    // Only applies if Y is flat. If Y changes, we rely on the robust loop below.
     if ((from.x != to.x && from.z != to.z) && from.y == to.y) {
         Vector3i mid(to.x, from.y, from.z);
         _carve_corridor_segment(from, mid);
@@ -1148,18 +1224,30 @@ void LevelDensityGrid::_carve_corridor_segment(const Vector3i &from, const Vecto
         return;
     }
 
-    Vector3i dir(
-        (to.x == current.x) ? 0 : static_cast<int>(Math::sign(to.x - current.x)),
-        (to.y == current.y) ? 0 : static_cast<int>(Math::sign(to.y - current.y)),
-        (to.z == current.z) ? 0 : static_cast<int>(Math::sign(to.z - current.z))
-    );
-
     _mark_brush(current, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
-    while (current != to) {
-        current.x += dir.x;
-        current.y += dir.y;
-        current.z += dir.z;
+
+    // [FIX] Loop with re-evaluation and safety break
+    int sanity_check = 0;
+    int max_iter = 10000; // Prevent infinite hangs
+
+    while (current != to && sanity_check < max_iter) {
+        
+        // Calculate direction for THIS step specifically
+        // This handles non-uniform diagonals (e.g. 2 right, 10 up) correctly.
+        Vector3i dir(
+            (to.x == current.x) ? 0 : static_cast<int>(Math::sign(to.x - current.x)),
+            (to.y == current.y) ? 0 : static_cast<int>(Math::sign(to.y - current.y)),
+            (to.z == current.z) ? 0 : static_cast<int>(Math::sign(to.z - current.z))
+        );
+
+        current += dir;
         _mark_brush(current, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+        
+        sanity_check++;
+    }
+
+    if (sanity_check >= max_iter) {
+        UtilityFunctions::printerr("LevelDensityGrid: _carve_corridor_segment infinite loop detected from ", from, " to ", to);
     }
 }
 
@@ -1217,6 +1305,173 @@ void LevelDensityGrid::low_pass() {
         }
     }
 }
+
+void LevelDensityGrid::_carve_path_castle(const Vector3 &start, const Vector3 &end) {
+    // Treat the entire path as one recursive structure. 
+    // We pass the full height difference into the recursion.
+    _carve_recursive_winding_path(Vector3i(start), Vector3i(end), 4);
+}
+
+void LevelDensityGrid::_carve_recursive_winding_path(const Vector3i &start, const Vector3i &end, int depth) {
+    Vector3 diff = Vector3(end - start);
+    float dist = diff.length();
+
+    // Base Case: Connect directly with a Stepped L-Shape
+    if (depth <= 0 || dist < 20.0f) {
+        _carve_stepped_L_shape(start, end);
+        return;
+    }
+
+    // Recursive Step: Midpoint with Height Interpolation
+    Vector3i mid = (start + end) / 2;
+    
+    // [KEY CHANGE] Interpolate height, but snap to integer steps if desired.
+    // Simple average distributes height evenly across the path.
+    // To make it "occasional", we could add randomness here, but average is safe.
+    mid.y = (start.y + end.y) / 2;
+
+    int offset_mag = (int)(dist * 0.3f); 
+    if (offset_mag < 2) offset_mag = 2;
+
+    // Displace horizontally
+    if (Math::abs(diff.x) > Math::abs(diff.z)) {
+        mid.z += rng->randi_range(-offset_mag, offset_mag);
+    } else {
+        mid.x += rng->randi_range(-offset_mag, offset_mag);
+    }
+    
+    // Clamp X/Z but allow Y to change
+    int gsx = get_grid_size_x(); int gsz = get_grid_size_z();
+    mid.x = Math::clamp(mid.x, 2, gsx - 3);
+    mid.z = Math::clamp(mid.z, 2, gsz - 3);
+    
+    // Recurse
+    _carve_recursive_winding_path(start, mid, depth - 1);
+    _carve_recursive_winding_path(mid, end, depth - 1);
+}
+
+void LevelDensityGrid::_carve_stepped_L_shape(const Vector3i &start, const Vector3i &end) {
+    // We have two legs: Start -> Corner -> End
+    // We need to decide which Y level the Corner sits at.
+    // It can be at start.y (Leg 1 flat, Leg 2 sloped)
+    // OR at end.y (Leg 1 sloped, Leg 2 flat).
+    
+    bool x_first = rng->randf() > 0.5f;
+    bool corner_at_start_height = rng->randf() > 0.5f;
+
+    Vector3i corner_flat; // The X/Z coordinates of the corner
+    if (x_first) {
+        corner_flat = Vector3i(end.x, 0, start.z);
+    } else {
+        corner_flat = Vector3i(start.x, 0, end.z);
+    }
+
+    Vector3i corner;
+    if (corner_at_start_height) {
+        corner = Vector3i(corner_flat.x, start.y, corner_flat.z);
+        // Leg 1 is Flat
+        _carve_variable_height_leg(start, corner);
+        // Leg 2 handles the height change
+        _carve_variable_height_leg(corner, end);
+    } else {
+        corner = Vector3i(corner_flat.x, end.y, corner_flat.z);
+        // Leg 1 handles the height change
+        _carve_variable_height_leg(start, corner);
+        // Leg 2 is Flat
+        _carve_variable_height_leg(corner, end);
+    }
+}
+
+// This function carves a straight line that can handle height differences
+// by inserting a straight staircase in the middle.
+void LevelDensityGrid::_carve_variable_height_leg(const Vector3i &start, const Vector3i &end) {
+    int height_diff = end.y - start.y;
+    
+    // If flat, just use standard carve
+    if (height_diff == 0) {
+        _carve_corridor_segment(start, end);
+        return;
+    }
+    
+    int h_dist = (int)Vector2(start.x - end.x, start.z - end.z).length();
+    int stair_len = Math::abs(height_diff); // 1:1 slope
+    
+    // If the corridor is too short for the stairs, we just carve a direct steep slope
+    // (This prevents infinite loops or logic errors, though it might look steep)
+    if (stair_len >= h_dist) {
+        // Fallback: Just direct carve step-by-step
+        _carve_corridor_segment(start, end); 
+        return;
+    }
+    
+    // Center the stairs in the corridor
+    // Structure: [Flat Part] -> [Stairs] -> [Flat Part]
+    int flat_padding = (h_dist - stair_len) / 2;
+    
+    // Calculate vector direction
+    Vector3 dir_vec = Vector3(end - start).normalized();
+    // We need precise integer steps for the flat parts
+    // It's axis aligned, so dir_vec is clean (e.g. 1,0,0 or 0,0,-1) but Y is tricky.
+    // Let's rely on finding intermediate points.
+    
+    // Find Stair Start point (Flat from Start -> StairStart)
+    Vector3i stair_start = start;
+    // Advance 'flat_padding' units along X or Z (Y remains start.y)
+    if (start.x != end.x) {
+        stair_start.x += Math::sign(end.x - start.x) * flat_padding;
+    } else {
+        stair_start.z += Math::sign(end.z - start.z) * flat_padding;
+    }
+    
+    // Find Stair End point (StairStart -> StairEnd handles height)
+    Vector3i stair_end = stair_start;
+    if (start.x != end.x) {
+        stair_end.x += Math::sign(end.x - start.x) * stair_len;
+    } else {
+        stair_end.z += Math::sign(end.z - start.z) * stair_len;
+    }
+    stair_end.y = end.y; // Target height reached here
+
+    // 1. Carve First Flat Section
+    _carve_corridor_segment(start, stair_start);
+    
+    // 2. Carve The Staircase
+    // We implement a simple straight stair carver here inline or helper
+    // Since it's straight, we iterate stair_len steps.
+    Vector3i cursor = stair_start;
+    int y_dir = Math::sign(height_diff);
+    
+    // Determine horizontal step direction
+    Vector3i step_dir = Vector3i(0,0,0);
+    if (stair_start.x != stair_end.x) step_dir.x = Math::sign(stair_end.x - stair_start.x);
+    else step_dir.z = Math::sign(stair_end.z - stair_start.z);
+
+    // Brush settings
+    int radius = path_brush_min_radius;
+    if (radius < 2) radius = 2;
+
+    for (int i = 0; i < stair_len; ++i) {
+        // Carve Step
+        _mark_brush(cursor, radius, radius, WORLD_OPEN_VALUE);
+        
+        // Headroom
+        if (radius < 3) _mark_brush(cursor + Vector3i(0, 2, 0), radius, radius, WORLD_OPEN_VALUE);
+        
+        // Move Up/Down
+        cursor.y += y_dir;
+        
+        // Move Forward
+        cursor += step_dir;
+    }
+    // Ensure the landing is clear
+    _mark_brush(cursor, radius, radius, WORLD_OPEN_VALUE);
+
+    // 3. Carve Second Flat Section
+    _carve_corridor_segment(stair_end, end);
+}
+
+void LevelDensityGrid::set_dungeon_path_algorithm(int p_algo) { dungeon_path_algorithm = p_algo; }
+int LevelDensityGrid::get_dungeon_path_algorithm() const { return dungeon_path_algorithm; }
 
 
 // --- Property Getters/Setters Implementation ---

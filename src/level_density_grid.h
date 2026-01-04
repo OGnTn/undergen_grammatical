@@ -19,6 +19,10 @@ class LevelDensityGrid : public DensityGrid {
 public:
     float WORLD_OPEN_VALUE = 0.0f;
     float WORLD_SOLID_VALUE = 1.0f;
+    enum DungeonPathAlgorithm {
+        ALGO_ASTAR = 0,
+        ALGO_CASTLE_RECURSIVE = 1
+    };
 
 private:
     // --- Configuration Properties ---
@@ -52,6 +56,7 @@ private:
     float water_height_density = 0.5f; // Default density for 80% height
 
     int liquid_resolution_multiplier = 2; // Default to 2x resolution
+    int dungeon_path_algorithm = ALGO_ASTAR;
 
     // Update helper signature to accept the multiplier for terrain lookups
     bool _is_space_free(const Vector3i& high_res_pos, const PackedFloat32Array& liquid_data, int resolution_mult);
@@ -78,6 +83,10 @@ private:
     void _carve_corridor_segment(const Vector3i &from, const Vector3i &to);
     // V2 implementation for specific stepped stair generation
     void _carve_staircase_v2(const Vector3i &start, const Vector3i &target);
+    void _carve_path_castle(const Vector3 &start, const Vector3 &end);
+    void _carve_recursive_winding_path(const Vector3i &start, const Vector3i &end, int depth);
+    void _carve_stepped_L_shape(const Vector3i &start, const Vector3i &end); // Replaces _carve_L_shape
+    void _carve_variable_height_leg(const Vector3i &start, const Vector3i &end); // Replaces vertical_staircase
     
 protected:
     static void _bind_methods();
@@ -156,6 +165,9 @@ public:
 
     void set_liquid_resolution_multiplier(int p_mult);
     int get_liquid_resolution_multiplier() const;
+
+    void set_dungeon_path_algorithm(int p_algo);
+    int get_dungeon_path_algorithm() const;
 };
 
 } // namespace godot

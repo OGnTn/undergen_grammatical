@@ -4,6 +4,7 @@
 #include "density_grid.h"
 #include "level_density_grid.h"
 #include "mc_chunk.h"
+#include "chunk_manager.h"
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
@@ -22,7 +23,7 @@ void initialize_density_grid_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<DensityGrid>();
     ClassDB::register_class<LevelDensityGrid>();
     ClassDB::register_class<MCChunk>();
-
+    ClassDB::register_class<ChunkManager>();
     // You could register singletons or editor plugins here if needed
 }
 
