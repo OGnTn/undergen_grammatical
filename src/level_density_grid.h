@@ -24,6 +24,19 @@ public:
         ALGO_CASTLE_RECURSIVE = 1
     };
 
+    struct ResolvedRoom {
+        Vector3i position; // Top-left corner in grid
+        Vector3i size;
+        String type;
+        String id;
+        Vector3 center() const { return Vector3(position) + Vector3(size) / 2.0; }
+    };
+    struct ResolvedEdge {
+        int from_index;
+        int to_index;
+        String type;
+    };
+
 private:
     // --- Configuration Properties ---
     float noise_scale = 50.0;
@@ -58,6 +71,9 @@ private:
     int liquid_resolution_multiplier = 2; // Default to 2x resolution
     int dungeon_path_algorithm = ALGO_ASTAR;
 
+    std::vector<ResolvedRoom> resolved_rooms;
+    int current_carving_zone_id = 0;
+
     // Update helper signature to accept the multiplier for terrain lookups
     bool _is_space_free(const Vector3i& high_res_pos, const PackedFloat32Array& liquid_data, int resolution_mult);
 
@@ -78,6 +94,8 @@ private:
     bool _check_overlap(const Dictionary &new_room, const TypedArray<Dictionary> &generated_rooms);
     void _calculate_surface_normals();
 
+
+    void _resolve_graph_layout(std::vector<ResolvedRoom> &rooms, const std::vector<ResolvedEdge> &edges, int iterations);
     // --- Refined Dungeon Path Helpers ---
     void _carve_dungeon_path(const Vector3 &start, const Vector3 &end);
     void _carve_corridor_segment(const Vector3i &from, const Vector3i &to);
@@ -96,6 +114,7 @@ public:
     ~LevelDensityGrid();
 
     void generate_level_data(const Vector3i &world_grid_dimensions, float voxel_size, int64_t seed);
+    void generate_from_graph(const TypedArray<Dictionary> &node_data, const TypedArray<Dictionary> &edge_data, float voxel_size, int64_t seed);
 
     Vector3 get_calculated_spawn_position() const;
     Vector3 get_calculated_end_position() const;
@@ -168,6 +187,10 @@ public:
 
     void set_dungeon_path_algorithm(int p_algo);
     int get_dungeon_path_algorithm() const;
+
+
+    //Level architecting
+    String get_room_type_at(const Vector3 &world_pos, float voxel_size) const;
 };
 
 } // namespace godot

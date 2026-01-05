@@ -51,6 +51,9 @@ void DensityGrid::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_world_material_grid", "grid"), &DensityGrid::set_world_material_grid);
     ClassDB::bind_method(D_METHOD("get_world_material_grid"), &DensityGrid::get_world_material_grid);
     ADD_PROPERTY(PropertyInfo(Variant::PACKED_BYTE_ARRAY, "world_material_grid"), "set_world_material_grid", "get_world_material_grid");
+
+    ClassDB::bind_method(D_METHOD("get_zone_name_by_id", "id"), &DensityGrid::get_zone_name_by_id);
+    ClassDB::bind_method(D_METHOD("get_zone_at", "pos"), &DensityGrid::get_zone_at);
 }
 
 
@@ -75,6 +78,11 @@ void DensityGrid::initialize_grid(int size_x, int size_y, int size_z, float defa
 
     world_material_grid.resize(total_grid_points);
     world_material_grid.fill(default_material_index);
+
+    world_zone_grid.resize(total_grid_points);
+    world_zone_grid.fill(0); // 0 = Unclaimed/Solid
+    zone_id_map.clear();
+    zone_id_map.push_back("undefined");
 
     UtilityFunctions::print("Initialized density grid of size ", grid_size_x, " x ", grid_size_y, " x ", grid_size_z, " = ", total_grid_points, " points with value ", default_value);
 }
@@ -187,6 +195,33 @@ int DensityGrid::get_grid_size_z() const { return grid_size_z; }
 
 void DensityGrid::set_surface_threshold(float p_threshold) { surface_threshold = p_threshold; }
 float DensityGrid::get_surface_threshold() const { return surface_threshold; }
+
+void DensityGrid::set_zone_at(const Vector3i &pos, int zone_id) {
+    int index = get_index(pos);
+    if (index != -1 && index < world_zone_grid.size()) {
+        world_zone_grid[index] = zone_id;
+    }
+}
+
+int DensityGrid::get_zone_at(const Vector3i &pos) const {
+    int index = get_index(pos);
+    if (index != -1 && index < world_zone_grid.size()) {
+        return world_zone_grid[index];
+    }
+    return 0;
+}
+
+int DensityGrid::register_zone_name(String name) {
+    zone_id_map.push_back(name);
+    return zone_id_map.size() - 1;
+}
+
+String DensityGrid::get_zone_name_by_id(int zone_id) const {
+    if (zone_id > 0 && zone_id < zone_id_map.size()) {
+        return zone_id_map[zone_id];
+    }
+    return "";
+}
 
 
 } // namespace godot

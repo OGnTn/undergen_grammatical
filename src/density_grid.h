@@ -14,6 +14,8 @@ class DensityGrid : public Resource {
 private:
     PackedFloat32Array world_density_grid;
     PackedByteArray world_material_grid;
+    PackedInt32Array world_zone_grid;
+    std::vector<String> zone_id_map;
     int grid_size_x = 0;
     int grid_size_y = 0;
     int grid_size_z = 0;
@@ -56,6 +58,11 @@ public:
     // New Property Accessors
     void set_world_material_grid(const PackedByteArray &p_grid);
     PackedByteArray get_world_material_grid() const;
+
+    void set_zone_at(const Vector3i &pos, int zone_id);
+    int get_zone_at(const Vector3i &pos) const;
+    String get_zone_name_by_id(int zone_id) const;
+    int register_zone_name(String name);
 };
 
 } // namespace godot

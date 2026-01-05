@@ -37,6 +37,7 @@ LevelDensityGrid::~LevelDensityGrid() {
 void LevelDensityGrid::_bind_methods() {
     // --- Main Generation Function ---
     ClassDB::bind_method(D_METHOD("generate_level_data", "world_grid_dimensions", "voxel_size", "seed"), &LevelDensityGrid::generate_level_data);
+    ClassDB::bind_method(D_METHOD("generate_from_graph", "node_data", "edge_data", "voxel_size", "seed"), &LevelDensityGrid::generate_from_graph);
     ClassDB::bind_method(D_METHOD("_mark_brush", "center", "radius_lower", "radius_higher", "value"), &LevelDensityGrid::_mark_brush);
     // --- Getters for Runtime Data ---
     ClassDB::bind_method(D_METHOD("get_calculated_spawn_position"), &LevelDensityGrid::get_calculated_spawn_position);
@@ -177,6 +178,156 @@ void LevelDensityGrid::_bind_methods() {
 }
 
 // --- Main Generation Function ---
+
+// level_density_grid.cpp
+
+void LevelDensityGrid::generate_from_graph(const TypedArray<Dictionary> &node_data, const TypedArray<Dictionary> &edge_data, float voxel_size, int64_t seed) {
+    // 1. Initialize
+    initialize_grid(get_grid_size_x(), get_grid_size_y(), get_grid_size_z(), WORLD_SOLID_VALUE);
+    resolved_rooms.clear();
+    current_carving_zone_id = 0; // Reset active zone
+    rng->set_seed(seed);
+
+    // 2. Parse Nodes
+    std::vector<ResolvedRoom> processing_rooms;
+    std::map<String, int> id_to_index;
+
+    for(int i=0; i < node_data.size(); ++i) {
+        Dictionary node = node_data[i];
+        ResolvedRoom r;
+        r.id = node.get("id", "room");
+        r.type = node.get("type", "generic");
+        
+        Vector3i min_s = node.get("min_size", Vector3i(5,5,5));
+        Vector3i max_s = node.get("max_size", Vector3i(10,10,10));
+        r.size = Vector3i(
+            rng->randi_range(min_s.x, max_s.x),
+            rng->randi_range(min_s.y, max_s.y),
+            rng->randi_range(min_s.z, max_s.z)
+        );
+
+        Vector3i grid_center = get_grid_dimensions() / 2;
+        r.position = grid_center + Vector3i(rng->randi_range(-10, 10), 0, rng->randi_range(-10, 10));
+        
+        processing_rooms.push_back(r);
+        id_to_index[r.id] = i;
+    }
+
+    // 3. Parse Edges (UPDATED to use ResolvedEdge)
+    std::vector<ResolvedEdge> edges;
+    for(int i=0; i < edge_data.size(); ++i) {
+        Dictionary edge_dict = edge_data[i];
+        String from_id = edge_dict.get("from", "");
+        String to_id = edge_dict.get("to", "");
+        String type = edge_dict.get("type", "corridor"); // Capture the type here!
+
+        if(id_to_index.count(from_id) && id_to_index.count(to_id)) {
+            ResolvedEdge e;
+            e.from_index = id_to_index[from_id];
+            e.to_index = id_to_index[to_id];
+            e.type = type;
+            edges.push_back(e);
+        }
+    }
+
+    // 4. Force-Directed Layout
+    _resolve_graph_layout(processing_rooms, edges, 100);
+
+    // 5. Carve Rooms
+    for(const auto &room : processing_rooms) {
+        // Register Zone (NEW)
+        int z_id = register_zone_name(room.type);
+        current_carving_zone_id = z_id;
+
+        Dictionary room_dict;
+        room_dict["start"] = room.position;
+        room_dict["end"] = room.position + room.size;
+        _create_room(room_dict);
+    }
+
+    // 6. Carve Connections
+    for(const auto &edge : edges) {
+        // Register Zone from the struct (NEW)
+        int z_id = register_zone_name(edge.type);
+        current_carving_zone_id = z_id;
+
+        ResolvedRoom &rA = processing_rooms[edge.from_index]; // Use .from_index
+        ResolvedRoom &rB = processing_rooms[edge.to_index];   // Use .to_index
+        
+        Vector3 start = rA.center();
+        Vector3 end = rB.center();
+
+        if(dungeon_mode) {
+             _carve_dungeon_path(start, end);
+        } else {
+             // Basic bezier placeholder logic
+             // In real implementation, pass 'start' and 'end' to your bezier function
+             // _carve_bezier_path(start, end); 
+             // For now, fallback to simple carve if bezier isn't separate yet:
+             _carve_corridor_segment(Vector3i(start), Vector3i(end)); 
+        }
+    }
+    
+    // Cleanup
+    current_carving_zone_id = 0; 
+
+    // 7. Post-Processing
+    if(smooth_terrain) low_pass();
+    _calculate_surface_normals();
+}
+
+// Updated Layout Solver to handle ResolvedEdge
+void LevelDensityGrid::_resolve_graph_layout(std::vector<ResolvedRoom> &rooms, const std::vector<ResolvedEdge> &edges, int iterations) {
+    float repulsion = 200.0f;
+    float spring_length = 30.0f;
+    float spring_strength = 0.5f;
+    Vector3 center_target = Vector3(get_grid_size_x()/2, get_grid_size_y()/2, get_grid_size_z()/2);
+
+    for(int k=0; k<iterations; ++k) {
+        std::vector<Vector3> forces(rooms.size(), Vector3(0,0,0));
+
+        // Repulsion ... (same as before)
+        for(int i=0; i<rooms.size(); ++i) {
+            for(int j=i+1; j<rooms.size(); ++j) {
+                Vector3 diff = rooms[i].center() - rooms[j].center();
+                float dist = diff.length();
+                if(dist < 0.1f) dist = 0.1f;
+                if (dist < (rooms[i].size.x + rooms[j].size.x)) {
+                    Vector3 f = diff.normalized() * (repulsion / dist);
+                    forces[i] += f;
+                    forces[j] -= f;
+                }
+            }
+            Vector3 to_center = center_target - rooms[i].center();
+            forces[i] += to_center * 0.05f; 
+        }
+
+        // Springs (Updated accessors)
+        for(const auto &edge : edges) {
+            int idxA = edge.from_index; // Changed from .first
+            int idxB = edge.to_index;   // Changed from .second
+            
+            Vector3 diff = rooms[idxB].center() - rooms[idxA].center();
+            float dist = diff.length();
+            float displacement = dist - spring_length;
+            Vector3 f = diff.normalized() * (displacement * spring_strength);
+            
+            forces[idxA] += f;
+            forces[idxB] -= f;
+        }
+
+        // Apply Forces ... (same as before)
+        for(int i=0; i<rooms.size(); ++i) {
+            Vector3 new_center = rooms[i].center() + forces[i];
+            rooms[i].position = Vector3i(
+                new_center.x - rooms[i].size.x / 2,
+                Math::clamp((int)new_center.y, 5, get_grid_size_y() - 20),
+                new_center.z - rooms[i].size.z / 2
+            );
+        }
+    }
+}
+
 void LevelDensityGrid::generate_level_data(const Vector3i &world_grid_dimensions, float voxel_size, int64_t seed) {
     if (world_grid_dimensions.x <= 0 || world_grid_dimensions.y <= 0 || world_grid_dimensions.z <= 0) {
         UtilityFunctions::printerr("LevelDensityGrid.generate_level_data: Invalid World Grid Dimensions ", world_grid_dimensions);
@@ -732,7 +883,13 @@ void LevelDensityGrid::_mark_brush(const Vector3i &center, int radius_lower, int
                             current_pos.z > 0 && current_pos.z < gsz - 1) {
                             
                             set_cell(current_pos, value);
-                        }
+                            if (current_carving_zone_id > 0) {
+                            // OPTIONAL: Don't overwrite existing zones (keeps Rooms intact if paths cross them)
+                                if (get_zone_at(current_pos) == 0) {
+                                    set_zone_at(current_pos, current_carving_zone_id);
+                                    }
+                                }
+                            }
                     } else {
                         if (i * i + j * j + k * k < radius_sq) {
                             Vector3i current_pos = center + Vector3i(i, j, k);
@@ -743,6 +900,12 @@ void LevelDensityGrid::_mark_brush(const Vector3i &center, int radius_lower, int
                                 current_pos.z > 0 && current_pos.z < gsz - 1) {
                                 
                                 set_cell(current_pos, value);
+                                if (current_carving_zone_id > 0) {
+                                    // OPTIONAL: Don't overwrite existing zones (keeps Rooms intact if paths cross them)
+                                    if (get_zone_at(current_pos) == 0) {
+                                        set_zone_at(current_pos, current_carving_zone_id);
+                                    }
+                                }
                             }
                         }
                     }
@@ -796,11 +959,11 @@ void LevelDensityGrid::_create_room(const Dictionary &room) {
     int gsy = get_grid_size_y();
     int gsz = get_grid_size_z();
 
-    // [FIX] Clamp loops to range [1, size-1] to preserve solid boundary shell
+    // Clamp loops to range [1, size-1] to preserve solid boundary shell
     int start_x = Math::max(min_corner.x, 1);
     int end_x   = Math::min(max_corner.x, gsx - 1);
     
-    int start_y = Math::max(min_corner.y, 1); // Ground is usually y=0, keep y=0 solid too
+    int start_y = Math::max(min_corner.y, 1); 
     int end_y   = Math::min(max_corner.y, gsy - 1);
 
     int start_z = Math::max(min_corner.z, 1);
@@ -809,7 +972,16 @@ void LevelDensityGrid::_create_room(const Dictionary &room) {
     for (int x = start_x; x < end_x; ++x) {
         for (int y = start_y; y < end_y; ++y) {
             for (int z = start_z; z < end_z; ++z) {
-                set_cell(Vector3i(x, y, z), WORLD_OPEN_VALUE);
+                Vector3i pos(x, y, z);
+                
+                // 1. Set Density (Carve Air)
+                set_cell(pos, WORLD_OPEN_VALUE);
+                
+                // 2. Set Zone ID (NEW FIX)
+                // If we are currently directing a specific room type, stamp it here.
+                if (current_carving_zone_id > 0) {
+                    set_zone_at(pos, current_carving_zone_id);
+                }
             }
         }
     }
@@ -1570,4 +1742,19 @@ float LevelDensityGrid::get_water_height_density() const { return water_height_d
 
 void LevelDensityGrid::set_liquid_resolution_multiplier(int p_mult) { liquid_resolution_multiplier = (p_mult < 1) ? 1 : p_mult; }
 int LevelDensityGrid::get_liquid_resolution_multiplier() const { return liquid_resolution_multiplier; }
+
+String LevelDensityGrid::get_room_type_at(const Vector3 &world_pos, float voxel_size) const {
+    // Convert world pos to grid pos
+    Vector3i grid_pos = Vector3i(world_pos / voxel_size);
+    
+    for(const auto &room : resolved_rooms) {
+        // Simple AABB check
+        if (grid_pos.x >= room.position.x && grid_pos.x < room.position.x + room.size.x &&
+            grid_pos.y >= room.position.y && grid_pos.y < room.position.y + room.size.y &&
+            grid_pos.z >= room.position.z && grid_pos.z < room.position.z + room.size.z) {
+            return room.type;
+        }
+    }
+    return "corridor"; // Default if not in a room
+}
 } // namespace godot
