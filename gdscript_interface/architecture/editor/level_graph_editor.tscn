@@ -1,0 +1,41 @@
+[gd_scene format=3 uid="uid://n1idmk5tjwfc"]
+
+[ext_resource type="Script" uid="uid://d32bw2om3xnob" path="res://systems/generation/architecture/editor/level_graph_editor.gd" id="1_pbfkg"]
+
+[node name="Control" type="Control" unique_id=1033815447]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_pbfkg")
+
+[node name="GraphEdit" type="GraphEdit" parent="." unique_id=1494303238]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+scroll_offset = Vector2(-40, -40)
+
+[node name="HBoxContainer" type="HBoxContainer" parent="." unique_id=1853263529]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -50.5
+offset_right = 50.5
+offset_bottom = 40.0
+grow_horizontal = 2
+
+[node name="SaveGraphButton" type="Button" parent="HBoxContainer" unique_id=1212623272]
+layout_mode = 2
+size_flags_horizontal = 4
+text = "Save Graph"
+
+[node name="Label" type="Label" parent="HBoxContainer" unique_id=1117215628]
+layout_mode = 2
+
+[connection signal="pressed" from="HBoxContainer/SaveGraphButton" to="." method="save_to_resource"]

@@ -3,6 +3,11 @@
 #define LEVEL_DENSITY_GRID_H
 
 #include "density_grid.h"
+#include "level_gen_data.h"
+#include "room_generator.h"
+#include "path_carver.h"
+#include "liquid_generator.h"
+
 #include <godot_cpp/classes/fast_noise_lite.hpp>
 #include <godot_cpp/classes/random_number_generator.hpp>
 #include <godot_cpp/variant/vector3.hpp>
@@ -19,63 +24,34 @@ class LevelDensityGrid : public DensityGrid {
 public:
     float WORLD_OPEN_VALUE = 0.0f;
     float WORLD_SOLID_VALUE = 1.0f;
-    enum DungeonPathAlgorithm {
-        ALGO_ASTAR = 0,
-        ALGO_CASTLE_RECURSIVE = 1
-    };
 
-    struct ResolvedRoom {
-        Vector3i position; // Top-left corner in grid
-        Vector3i size;
-        String type;
-        String id;
-        Vector3 center() const { return Vector3(position) + Vector3(size) / 2.0; }
-    };
-    struct ResolvedEdge {
-        int from_index;
-        int to_index;
-        String type;
-    };
+    // We expose ResolvedRoom/Edge via common header types, 
+    // but for GDScript API compatibility we might need to expose them? 
+    // Actually structs aren't exposed directly to GDScript usually unless registered.
+    // The previous code had them public but they weren't used in API methods (except internal logic).
+    
+    using ResolvedRoom = godot::ResolvedRoom;
+    using ResolvedEdge = godot::ResolvedEdge;
 
 private:
-    // --- Configuration Properties ---
+public: // Components Public for easy access internally (or make private and use getters)
+    RoomGenerator room_gen;
+    PathCarver path_carver;
+    LiquidGenerator liquid_gen;
+
+private:
+    std::vector<ResolvedRoom> resolved_rooms;
+    int current_carving_zone_id = 0;
+
+    // --- Configuration Properties (Direct on LevelGrid) ---
+    // Noise is distinct from components usually
     float noise_scale = 50.0;
     float noise_intensity = 0.5;
     int noise_seed = 1337;
     float noise_frequency = 0.02;
 
-    int room_count = 10;
-    Vector3i min_room_size = Vector3i(5, 5, 3);
-    Vector3i max_room_size = Vector3i(15, 15, 8);
-    int max_placement_tries = 5000;
-
-    int path_brush_min_radius = 2;
-    int path_brush_max_radius = 4;
-    bool use_square_brush = false;
-    float vertical_movement_cost_multiplier = 2.0;
-    bool dungeon_mode = false; 
-    
-    int path_segments = 1;
-    float path_bend_factor = 0.4f;
-    float path_wobble_magnitude = 0.0f;
-    float path_wobble_frequency = 0.2f;
-    bool connect_from_ground_level = false;
-
     bool smooth_terrain = false;
     int smoothing_strength = 1;
-
-    int max_basin_size = 40;       // Default from our testing
-    float sparsity_cutoff = 0.2f;  // Default noise threshold
-    float water_height_density = 0.5f; // Default density for 80% height
-
-    int liquid_resolution_multiplier = 2; // Default to 2x resolution
-    int dungeon_path_algorithm = ALGO_ASTAR;
-
-    std::vector<ResolvedRoom> resolved_rooms;
-    int current_carving_zone_id = 0;
-
-    // Update helper signature to accept the multiplier for terrain lookups
-    bool _is_space_free(const Vector3i& high_res_pos, const PackedFloat32Array& liquid_data, int resolution_mult);
 
     // --- Runtime Data ---
     Vector3 calculated_spawn_position = Vector3(0, 0, 0);
@@ -85,27 +61,11 @@ private:
     Ref<FastNoiseLite> noise_generator;
     Ref<RandomNumberGenerator> rng;
 
-    // --- Internal Helper Functions ---
-    void _generate_rooms_and_paths(float voxel_size);
-    void _apply_noise();
-
-    void _create_room(const Dictionary &room);
-    Dictionary _pick_room();
-    bool _check_overlap(const Dictionary &new_room, const TypedArray<Dictionary> &generated_rooms);
+    // --- Internal Helpers ---
+    void _apply_noise(); 
     void _calculate_surface_normals();
+    // Helper to bridge the gap or we just expose the component logic via generate_level_data
 
-
-    void _resolve_graph_layout(std::vector<ResolvedRoom> &rooms, const std::vector<ResolvedEdge> &edges, int iterations);
-    // --- Refined Dungeon Path Helpers ---
-    void _carve_dungeon_path(const Vector3 &start, const Vector3 &end);
-    void _carve_corridor_segment(const Vector3i &from, const Vector3i &to);
-    // V2 implementation for specific stepped stair generation
-    void _carve_staircase_v2(const Vector3i &start, const Vector3i &target);
-    void _carve_path_castle(const Vector3 &start, const Vector3 &end);
-    void _carve_recursive_winding_path(const Vector3i &start, const Vector3i &end, int depth);
-    void _carve_stepped_L_shape(const Vector3i &start, const Vector3i &end); // Replaces _carve_L_shape
-    void _carve_variable_height_leg(const Vector3i &start, const Vector3i &end); // Replaces vertical_staircase
-    
 protected:
     static void _bind_methods();
 
@@ -114,14 +74,20 @@ public:
     ~LevelDensityGrid();
 
     void generate_level_data(const Vector3i &world_grid_dimensions, float voxel_size, int64_t seed);
-    void generate_from_graph(const TypedArray<Dictionary> &node_data, const TypedArray<Dictionary> &edge_data, float voxel_size, int64_t seed);
-
+    void generate_from_graph(const TypedArray<Dictionary> &node_data, const TypedArray<Dictionary> &edge_data, float voxel_size, int64_t seed, Dictionary settings = Dictionary());
     Vector3 get_calculated_spawn_position() const;
     Vector3 get_calculated_end_position() const;
     Dictionary get_surface_normals() const;
 
+    // Helper for GDScript to mark brush (forwarded to PathCarver logic or reimplemented?)
+    // _mark_brush was exposed. It is useful for manual painting. 
+    // PathCarver has a private _mark_brush. We can expose a public one here that calls it or duplicates simple logic.
     void _mark_brush(const Vector3i &center, int radius_lower, int radius_higher, float value);
     Vector3i _find_ground_position(const Vector3i &start_pos);
+
+    // --- Getters / Setters (Delegates) ---
+    
+    // Noise
     void set_noise_scale(float p_scale);
     float get_noise_scale() const;
     void set_noise_intensity(float p_intensity);
@@ -130,7 +96,10 @@ public:
     int get_noise_seed() const;
     void set_noise_frequency(float p_freq);
     float get_noise_frequency() const;
+    void set_noise_generator(const Ref<FastNoiseLite> &p_noise);
+    Ref<FastNoiseLite> get_noise_generator() const;
 
+    // Room Generator Delegates
     void set_room_count(int p_count);
     int get_room_count() const;
     void set_min_room_size(const Vector3i &p_size);
@@ -139,8 +108,8 @@ public:
     Vector3i get_max_room_size() const;
     void set_max_placement_tries(int p_tries);
     int get_max_placement_tries() const;
-    void low_pass();
 
+    // Path Carver Delegates
     void set_path_brush_min_radius(int p_radius);
     int get_path_brush_min_radius() const;
     void set_path_brush_max_radius(int p_radius);
@@ -151,7 +120,10 @@ public:
     float get_vertical_movement_cost_multiplier() const;
     void set_dungeon_mode(bool p_enabled);
     bool get_dungeon_mode() const;
+    void set_dungeon_path_algorithm(int p_algo);
+    int get_dungeon_path_algorithm() const;
     
+    // Bezier
     void set_path_segments(int p_segments);
     int get_path_segments() const;
     void set_path_bend_factor(float p_factor);
@@ -160,36 +132,28 @@ public:
     float get_path_wobble_magnitude() const;
     void set_path_wobble_frequency(float p_frequency);
     float get_path_wobble_frequency() const;
-
     void set_connect_from_ground_level(bool p_enabled);
     bool get_connect_from_ground_level() const;
 
+    // Smoothing
     void set_smooth_terrain(bool p_enabled);
     bool get_smooth_terrain() const;
     void set_smoothing_strength(int p_strength);
     int get_smoothing_strength() const;
+    void low_pass(); // Public API
 
-    void set_noise_generator(const Ref<FastNoiseLite> &p_noise);
-    Ref<FastNoiseLite> get_noise_generator() const;
+    // Liquid Generator Delegates
     Ref<DensityGrid> generate_liquid_grid();
-
     void set_max_basin_size(int p_size);
     int get_max_basin_size() const;
-
     void set_sparsity_cutoff(float p_cutoff);
     float get_sparsity_cutoff() const;
-
     void set_water_height_density(float p_density);
     float get_water_height_density() const;
-
     void set_liquid_resolution_multiplier(int p_mult);
     int get_liquid_resolution_multiplier() const;
 
-    void set_dungeon_path_algorithm(int p_algo);
-    int get_dungeon_path_algorithm() const;
-
-
-    //Level architecting
+    // Level Architecting
     String get_room_type_at(const Vector3 &world_pos, float voxel_size) const;
 };
 
