@@ -66,8 +66,38 @@ func populate_level():
 		return
 
 	# Generate candidate points on the surface
+	spawn_queue.clear()
+	
+	# --- 1. Vox Fixed Spawns ---
+	var vox_spawns = world.density_grid_resource.get_vox_spawns()
+	var spawn_map = world.level_resource.vox_spawn_map
+	
+	if not vox_spawns.is_empty():
+		print("DEBUG: Found %d fixed Vox spawns" % vox_spawns.size())
+		for spawn in vox_spawns:
+			var idx = spawn["palette_index"]
+			var grid_pos = spawn["position"]
+			
+			if spawn_map.has(idx):
+				var spawn_res = spawn_map[idx]
+				if spawn_res and spawn_res.scene:
+					var path_key = spawn_res.scene.resource_path
+					
+					# Ensure it's in our local cache so spawining doesn't fail
+					if not scene_cache.has(path_key):
+						scene_cache[path_key] = spawn_res.scene
+						resource_cache[path_key] = spawn_res
+						if %ObjectSpawner: %ObjectSpawner.add_spawnable_scene(path_key)
+					
+					spawn_queue.append({
+						"scene_path": path_key,
+						"point": grid_pos, # Used by spawn_at_location to set position * cube_size
+						# Fixed spawns usually don't need collision/rarity checks
+					})
+
+	# --- 2. Procedural Surface Spawns ---
 	var points = poisson_disk_sampler.poisson_disk_sampling(world.surface_normals.keys(), 1)
-	spawn_queue.clear() 
+ 
 
 	for point in points:
 		var point_normal = world.surface_normals[point]
@@ -264,11 +294,10 @@ func align_with_y(xform: Transform3D, new_y: Vector3) -> Transform3D:
 	return xform
 
 func _on_spawning_finished():
-	emit_signal("finished_spawning")
-	peer_finished_spawning.rpc()
-	if !is_processing(): return
-	set_process(false)
-	emit_signal("finished_spawning")
+	if is_processing():
+		set_process(false)
+	
+	# RPC with call_local handles both remote notification and local signal emission
 	peer_finished_spawning.rpc()
 
 @rpc("any_peer", "call_local", "reliable")

@@ -96,7 +96,10 @@ func generate_world() -> void:
 			result["edges"],
 			cube_size,
 			1337,
-			{}
+			{ 
+				"vox_spawn_map": level_resource.vox_spawn_map,
+				"vox_material_map": level_resource.vox_material_map
+			}
 		)
 	else:
 		# Fallback: Use the legacy random generation if no grammar is provided

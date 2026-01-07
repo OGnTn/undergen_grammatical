@@ -46,6 +46,12 @@ class_name LevelResource extends Resource
 @export var liquid_source_count: int = 10
 @export var liquid_spread_range: int = 15
 
+@export_group("Vox Integration")
+## Maps Palette Index (int 0-255) to a WorldSpawnableObject
+@export var vox_spawn_map: Dictionary = {}
+## Maps Palette Index (int 0-255) to a Material (overrides generated material)
+@export var vox_material_map: Dictionary = {}
+
 @export_group("Legacy / Internal")
 @export var noise_texture: FastNoiseLite
 @export var decorations: Dictionary[PackedScene, float] = {}

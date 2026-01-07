@@ -16,6 +16,10 @@
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/core/object.hpp>
 
+#include "ogt_vox.h"
+#include <map>
+#include <vector>
+
 namespace godot {
 
 class LevelDensityGrid : public DensityGrid {
@@ -42,6 +46,26 @@ public: // Components Public for easy access internally (or make private and use
 private:
     std::vector<ResolvedRoom> resolved_rooms;
     int current_carving_zone_id = 0;
+
+    // --- Vox Integration ---
+    std::map<String, const ogt_vox_scene*> vox_cache;
+    
+    struct VoxSpawn {
+        Vector3 position;
+        int palette_index;
+    };
+    std::vector<VoxSpawn> current_vox_spawns;
+    
+    // Maps passed from GDScript (cached during generation)
+    Dictionary current_vox_spawn_map;
+    Dictionary current_vox_material_map;
+
+    const ogt_vox_scene* _load_vox(const String &path);
+    void _stamp_vox(const ResolvedRoom &room, const ogt_vox_scene* scene);
+    void _get_vox_bounds(const ogt_vox_scene* scene, Vector3i &r_min, Vector3i &r_max);
+    void _carve_box(const Vector3i &origin, const Vector3i &size, float value);
+    void _clear_vox_cache();
+
 
     // --- Configuration Properties (Direct on LevelGrid) ---
     // Noise is distinct from components usually
@@ -153,10 +177,31 @@ public:
     void set_liquid_resolution_multiplier(int p_mult);
     int get_liquid_resolution_multiplier() const;
 
+    // Vox Integration
+    TypedArray<Dictionary> get_vox_spawns() const;
+    void set_vox_inverse_density(bool p_enabled);
+    bool get_vox_inverse_density() const;
+    bool vox_inverse_density = false;
+
+    enum PlacementAlgorithm {
+        ALGO_FORCE_DIRECTED = 0,
+        ALGO_BSP = 1
+    };
+
+    void set_placement_algorithm(PlacementAlgorithm p_algo);
+    PlacementAlgorithm get_placement_algorithm() const;
+
+private:
+    PlacementAlgorithm placement_algorithm = ALGO_FORCE_DIRECTED;
+    void _place_rooms_force_directed(std::vector<ResolvedRoom> &processing_rooms, const std::vector<ResolvedEdge> &edges, const std::vector<int> &node_depths, int max_depth, const TypedArray<Dictionary> &macro_volumes, const PackedVector3Array &guide_points);
+    void _place_rooms_bsp(std::vector<ResolvedRoom> &processing_rooms);
+
     // Level Architecting
     String get_room_type_at(const Vector3 &world_pos, float voxel_size) const;
 };
 
 } // namespace godot
+
+VARIANT_ENUM_CAST(godot::LevelDensityGrid::PlacementAlgorithm);
 
 #endif // LEVEL_DENSITY_GRID_H

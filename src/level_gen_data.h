@@ -20,6 +20,9 @@ struct ResolvedRoom {
     bool has_relative_constraint = false;
     String relative_target_id;
     Vector3 relative_offset;
+    
+    // Vox Integration
+    String vox_path;
 
     Vector3 center() const { return Vector3(position) + Vector3(size) / 2.0; }
 };

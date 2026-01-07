@@ -70,6 +70,7 @@ func generate(iterations: int = 4, initial_state: Dictionary = {}, max_nodes: in
                     }
                     if rhs_n.has("min_size"): new_n["min_size"] = rhs_n["min_size"]
                     if rhs_n.has("max_size"): new_n["max_size"] = rhs_n["max_size"]
+                    if rhs_n.has("vox_path"): new_n["vox_path"] = rhs_n["vox_path"]
                     
                     # Resolve Relative Constraints
                     var c = new_n["constraints"]
@@ -152,6 +153,58 @@ func generate(iterations: int = 4, initial_state: Dictionary = {}, max_nodes: in
                 
         nodes = next_nodes
         edges = next_edges
+        
+    # 3. Post-Process: Resolve Connections (LOOPS)
+    print("Grammar: Resolving Connections...")
+    var connection_edges = []
+    
+    for i in range(nodes.size()):
+        var node = nodes[i]
+        if node.has("connect_to"):
+            var ct = node["connect_to"]
+            var target_sym = ct.get("target", "")
+            
+            var best_idx = -1
+            var candidates = []
+            
+            # Find Candidates
+            for j in range(nodes.size()):
+                if i == j: continue
+                var other = nodes[j]
+                
+                # Check symbol match (case insensitive?)
+                if other.get("symbol", "") == target_sym or target_sym == "": 
+                    # Check if edge already exists? (Expensive O(E))
+                    # For now assume multigraph is OK or handled by logic
+                    
+                    # Calculate Logic Distance (Topology Distance? No, physics distance is unknown yet)
+                    # We can only reliably use "Random" or "First" at this stage really..
+                    # UNLESS user means "Closest in Graph Topology" (BFS)
+                    # OR we wait until C++ physics step to resolve this?
+                    # BUT we need to output EDGES for the solver.
+                    
+                    # Wait. If we are in Grammar Generator, we have NO spatial information.
+                    # We only create logical edges.
+                    # "Closest" implies spatial.
+                    # This logic FLIPS functionality.
+                    # If the user wants a loop, they want a LOGICAL connection.
+                    # So "Closest" is ambiguous.
+                    
+                    # Alternative: "Random" valid target.
+                    candidates.append(j)
+            
+            if candidates.size() > 0:
+                best_idx = candidates[rng.randi() % candidates.size()]
+                
+                if best_idx != -1:
+                    print("Grammar: Connected %s -> %s (Loop)" % [node["id"], nodes[best_idx]["id"]])
+                    connection_edges.append({
+                        "from": node["id"],
+                        "to": nodes[best_idx]["id"],
+                        "type": "corridor" # Default type
+                    })
+
+    edges.append_array(connection_edges)
 
     return { "nodes": nodes, "edges": edges }
 

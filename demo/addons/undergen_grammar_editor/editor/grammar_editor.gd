@@ -197,6 +197,7 @@ func _load_graph_from_rule(rule: GraphRule):
 		
 		# Set properties in UI slots
 		g_node.get_node("Content/SymbolEdit").text = n_data["symbol"]
+		g_node.get_node("Content/VoxEdit").text = n_data.get("vox_path", "")
 		
 		# Set Sizes
 		if n_data.has("min_size"):
@@ -215,6 +216,14 @@ func _load_graph_from_rule(rule: GraphRule):
 		var constraints = n_data.get("constraints", {})
 		if constraints.has("relative_to"):
 			g_node.get_node("Content/ConstraintBox/RelativeEdit").text = constraints["relative_to"]
+			if constraints.has("offset"):
+				var off = constraints["offset"]
+				g_node.get_node("Content/ConstraintBox/RelativeOffEdit").text = "%.1f,%.1f,%.1f" % [off.x, off.y, off.z]
+		
+	# CONNECT TO
+		if n_data.has("connect_to"): 
+			var ct = n_data["connect_to"]
+			g_node.get_node("Content/ConnectBox/ConnectTargetEdit").text = ct.get("target", "")
 		
 		if constraints.has("fixed_pos"):
 			g_node.get_node("Content/ConstraintBox/FixedCheck").button_pressed = true
@@ -284,6 +293,12 @@ func _create_graph_node_ui(symbol_text="Symbol"):
 	edit.custom_minimum_size = Vector2(80, 0)
 	vbox.add_child(edit)
 	
+	var vox = LineEdit.new()
+	vox.name = "VoxEdit"
+	vox.placeholder_text = "res://path/to/mesh.vox"
+	vox.tooltip_text = "Optional: Path to .vox file"
+	vbox.add_child(vox)
+	
 	# SIZE UI
 	var sz_lbl = Label.new()
 	sz_lbl.text = "Size Range (Min - Max):"
@@ -321,11 +336,33 @@ func _create_graph_node_ui(symbol_text="Symbol"):
 	clbl.add_theme_font_size_override("font_size", 10)
 	cbox.add_child(clbl)
 	
+	# CONNECT TO UI
+	var conn_box = VBoxContainer.new()
+	conn_box.name = "ConnectBox"
+	vbox.add_child(conn_box)
+	
+	var clbl2 = Label.new()
+	clbl2.text = "Loop / Snap Connection"
+	clbl2.add_theme_font_size_override("font_size", 10)
+	conn_box.add_child(clbl2)
+	
+	var ct_edit = LineEdit.new()
+	ct_edit.name = "ConnectTargetEdit"
+	ct_edit.placeholder_text = "Snap to Symbol..."
+	conn_box.add_child(ct_edit)
+	
 	var rel_edit = LineEdit.new()
 	rel_edit.name = "RelativeEdit"
 	rel_edit.placeholder_text = "Align with ID..."
-	rel_edit.tooltip_text = "ID of another node in this rule to align with."
+	rel_edit.tooltip_text = "ID of another node in this rule"
 	cbox.add_child(rel_edit)
+	
+	var rel_off = LineEdit.new()
+	rel_off.name = "RelativeOffEdit"
+	rel_off.placeholder_text = "Offset x,y,z"
+	rel_off.tooltip_text = "Offset relative to the aligned node"
+	cbox.add_child(rel_off)
+
 	
 	var fix_chk = CheckBox.new()
 	fix_chk.name = "FixedCheck"
@@ -405,6 +442,7 @@ func _on_save():
 			var node_data = {
 				"id": child.name,
 				"symbol": child.get_node("Content/SymbolEdit").text,
+				"vox_path": child.get_node("Content/VoxEdit").text,
 				"editor_pos": child.position_offset,
 				"constraints": {} 
 			}
@@ -425,6 +463,17 @@ func _on_save():
 			var rel = child.get_node("Content/ConstraintBox/RelativeEdit").text
 			if rel != "":
 				node_data["constraints"]["relative_to"] = rel
+				var off_str = child.get_node("Content/ConstraintBox/RelativeOffEdit").text
+				var o_parts = off_str.split(",")
+				if o_parts.size() == 3:
+					node_data["constraints"]["offset"] = Vector3(o_parts[0].to_float(), o_parts[1].to_float(), o_parts[2].to_float())
+			
+			# SAVE CONNECT TO
+			var ct_target = child.get_node("Content/ConnectBox/ConnectTargetEdit").text
+			if ct_target != "":
+				node_data["connect_to"] = {
+					"target": ct_target
+				}
 			
 			if child.get_node("Content/ConstraintBox/FixedCheck").button_pressed:
 				var vec_str = child.get_node("Content/ConstraintBox/FixedEdit").text
