@@ -38,6 +38,29 @@ var face_normals: Dictionary[Vector3, Vector3] = {}
 	set(value):
 		generate_world()
 
+@export var debug_show_zones: bool = false:
+	set(value):
+		debug_show_zones = value
+		_update_zone_visualizer()
+
+var _zone_visualizer = null
+
+func _update_zone_visualizer():
+	if debug_show_zones:
+		if not _zone_visualizer:
+			var script = load("res://gdscript_interface/debug/zone_visualizer.gd")
+			if script:
+				_zone_visualizer = Node3D.new()
+				_zone_visualizer.set_script(script)
+				_zone_visualizer.name = "ZoneVisualizer"
+				add_child(_zone_visualizer)
+				_zone_visualizer.world = self
+		_zone_visualizer.visualize()
+	else:
+		if _zone_visualizer:
+			_zone_visualizer.queue_free()
+			_zone_visualizer = null
+
 func export_scene():
 	generate_world()
 
@@ -70,25 +93,25 @@ func init_level_resource():
 	density_grid_resource.smoothing_strength = level_resource.smoothing_strength
 	
 	density_grid_resource.surface_threshold = surface_threshold
-	density_grid_resource.room_min_size = Vector3i(level_resource.room_size_range_x[0],level_resource.room_size_range_y[0], level_resource.room_size_range_z[0])
-	density_grid_resource.room_max_size = Vector3i(level_resource.room_size_range_x[1],level_resource.room_size_range_y[1], level_resource.room_size_range_z[1])
+	density_grid_resource.room_min_size = Vector3i(level_resource.room_size_range_x[0], level_resource.room_size_range_y[0], level_resource.room_size_range_z[0])
+	density_grid_resource.room_max_size = Vector3i(level_resource.room_size_range_x[1], level_resource.room_size_range_y[1], level_resource.room_size_range_z[1])
 
 func generate_world() -> void:
 	populator.finished_spawning.connect(_on_all_objects_spawned)
-	print(str(multiplayer.get_unique_id())+ ": " + "Generating level")
+	print(str(multiplayer.get_unique_id()) + ": " + "Generating level")
 	init_level_resource()
 	init_chunks()
-	print(str(multiplayer.get_unique_id())+ ": " + "initialized chunks")
+	print(str(multiplayer.get_unique_id()) + ": " + "initialized chunks")
 	# 1. Generate Terrain Density
 	# 3. Generate Terrain (The Integration Point)
 	# Check if we have a valid Graph Resource assigned in the Inspector
 	# Check for Grammar in LevelResource
 	if level_resource.grammar:
-		print(str(multiplayer.get_unique_id())+ ": " + "Generating from Procedural Grammar (LevelResource)...")
+		print(str(multiplayer.get_unique_id()) + ": " + "Generating from Procedural Grammar (LevelResource)...")
 		
 		# 2. Run Grammar
 		var gen = GrammarGenerator.new(level_resource.grammar, 1337)
-		var result = gen.generate(4, {}, level_resource.max_rooms) 
+		var result = gen.generate(4, {}, level_resource.max_rooms)
 		
 		# 3. Pass to C++
 		density_grid_resource.generate_from_graph(
@@ -96,34 +119,36 @@ func generate_world() -> void:
 			result["edges"],
 			cube_size,
 			1337,
-			{ 
+			{
 				"vox_spawn_map": level_resource.vox_spawn_map,
 				"vox_material_map": level_resource.vox_material_map
 			}
 		)
 	else:
 		# Fallback: Use the legacy random generation if no grammar is provided
-		print(str(multiplayer.get_unique_id())+ ": " + "Generating Default Noise Level...")
+		print(str(multiplayer.get_unique_id()) + ": " + "Generating Default Noise Level...")
 		generator.generate_level(10, density_grid_resource)
-	print(str(multiplayer.get_unique_id())+ ": " + "Generated level")
+	print(str(multiplayer.get_unique_id()) + ": " + "Generated level")
 	surface_normals = density_grid_resource.surface_normals
 	
 	# Run simulation (C++) and get the new DensityGrid specifically for water
-	print(str(multiplayer.get_unique_id())+ ": " + "Generating liquid")
+	print(str(multiplayer.get_unique_id()) + ": " + "Generating liquid")
 	var liquid_grid_resource = density_grid_resource.generate_liquid_grid()
-	print(str(multiplayer.get_unique_id())+ ": " + "Generated liquid")
+	print(str(multiplayer.get_unique_id()) + ": " + "Generated liquid")
 	liquid_grid_resource.surface_threshold = surface_threshold
 	
 	# Assign the liquid grid to all liquid chunks
 	for l_chunk in liquid_chunks:
 		l_chunk.set_density_grid(liquid_grid_resource)
 	
-	print(str(multiplayer.get_unique_id())+ ": " + "building mesh")
+	print(str(multiplayer.get_unique_id()) + ": " + "building mesh")
 	build_mesh()
-	print(str(multiplayer.get_unique_id())+ ": " + "built mesh")
-	if(multiplayer.is_server()):
+	print(str(multiplayer.get_unique_id()) + ": " + "built mesh")
+	if (multiplayer.is_server()):
 		navigation_region.bake_navigation_mesh()
 	populator.prepare_spawn_list(level_resource.spawn_registry)
+	
+	_update_zone_visualizer()
 
 func _on_all_objects_spawned():
 	bake_gi()
@@ -131,9 +156,9 @@ func _on_all_objects_spawned():
 
 func bake_gi():
 	#await get_tree().create_timer(1.5).timeout
-	print(str(multiplayer.get_unique_id())+ ": " + "baking GI")
-	%VoxelGI.position = Vector3(world_size_x * cube_size/2, world_size_y * cube_size/2, world_size_z * cube_size/2) 
-	%VoxelGI.size = Vector3(world_size_x * cube_size, world_size_y * cube_size, world_size_z * cube_size) 
+	print(str(multiplayer.get_unique_id()) + ": " + "baking GI")
+	%VoxelGI.position = Vector3(world_size_x * cube_size / 2, world_size_y * cube_size / 2, world_size_z * cube_size / 2)
+	%VoxelGI.size = Vector3(world_size_x * cube_size, world_size_y * cube_size, world_size_z * cube_size)
 	%VoxelGI.bake()
 
 
@@ -181,30 +206,30 @@ func get_true_surface_position(approx_pos_ws: Vector3) -> Vector3:
 
 func align_with_y(xform, new_y):
 	var up_direction = Vector3.UP
-	var rotation_quat = Quaternion(up_direction, new_y) 
-	xform.basis = Basis(rotation_quat).orthonormalized() 
-	return xform 
+	var rotation_quat = Quaternion(up_direction, new_y)
+	xform.basis = Basis(rotation_quat).orthonormalized()
+	return xform
 
-func get_n_closest_surface_points(x, y, z, n): 
-	var points = surface_normals.keys() 
-	points.sort_custom(func(a, b): a.distance_to(Vector3i(x, y, z)) < b.distance_to(Vector3i(x, y, z))) 
-	return points.slice(0, n) 
+func get_n_closest_surface_points(x, y, z, n):
+	var points = surface_normals.keys()
+	points.sort_custom(func(a, b): a.distance_to(Vector3i(x, y, z)) < b.distance_to(Vector3i(x, y, z)))
+	return points.slice(0, n)
 
-func get_closest_surface_point(x, y, z): 
-	var closest_point: Vector3i 
-	var closest_dist: float 
-	for p in surface_normals.keys(): 
-		if(!closest_point): 
+func get_closest_surface_point(x, y, z):
+	var closest_point: Vector3i
+	var closest_dist: float
+	for p in surface_normals.keys():
+		if (!closest_point):
 			closest_point = p
-			closest_dist = p.distance_to(Vector3i(x, y, z)) 
-		else: 
-			var dist = p.distance_to(Vector3i(x, y, z)) 
-			if dist < closest_dist: 
+			closest_dist = p.distance_to(Vector3i(x, y, z))
+		else:
+			var dist = p.distance_to(Vector3i(x, y, z))
+			if dist < closest_dist:
 				closest_point = p
-				closest_dist = dist 
-	return closest_point 
+				closest_dist = dist
+	return closest_point
 
-func mark_brush(x, y, z, radius_lower, radius_higher, val): 
+func mark_brush(x, y, z, radius_lower, radius_higher, val):
 	density_grid_resource._mark_brush(Vector3i(x, y, z), radius_lower, radius_higher, val)
 
 func modify_terrain_material(position: Vector3, radius: int, material_index: int):
@@ -220,7 +245,6 @@ func modify_terrain_material(position: Vector3, radius: int, material_index: int
 	for x in range(cx - radius, cx + radius + 1):
 		for y in range(cy - radius, cy + radius + 1):
 			for z in range(cz - radius, cz + radius + 1):
-				
 				# Check distance for sphere shape
 				var current_pos = Vector3(x, y, z)
 				if current_pos.distance_squared_to(center) <= r_sq:
@@ -251,7 +275,7 @@ func init_chunks() -> void:
 	#var compute_shader = load("res://assets/mc_compute_multimat.glsl")
 	var compute_shader = null
 	
-	print(str(multiplayer.get_unique_id())+ ": " + "Batch init chunks (C++)")
+	print(str(multiplayer.get_unique_id()) + ": " + "Batch init chunks (C++)")
 
 	# 1. Prepare Materials Array
 	var materials = [level_resource.base_material]
@@ -260,11 +284,11 @@ func init_chunks() -> void:
 		
 	# This single call replaces the entire nested loop
 	chunk_manager.init_chunks_batch(
-		self,                   # Parent node (World)
-		chunks,                 # Array to fill (Terrain)
-		liquid_chunks,          # Array to fill (Liquid)
+		self, # Parent node (World)
+		chunks, # Array to fill (Terrain)
+		liquid_chunks, # Array to fill (Liquid)
 		density_grid_resource,
-		materials,              # Pass array of materials
+		materials, # Pass array of materials
 		level_resource.liquid_material,
 		compute_shader,
 		chunk_size,
@@ -276,12 +300,12 @@ func init_chunks() -> void:
 	
 	chunk_manager.free() # We don't need the manager node anymore
 
-func build_mesh() -> void: 
-	print(str(multiplayer.get_unique_id())+ ": " + "Building mesh (C++ MCChunk)") 
-	var chunk_count = 0 
+func build_mesh() -> void:
+	print(str(multiplayer.get_unique_id()) + ": " + "Building mesh (C++ MCChunk)")
+	var chunk_count = 0
 	
 	# Build Terrain Meshes
-	for chunk in chunks: 
+	for chunk in chunks:
 		chunk.generate_mesh_from_density_grid()
 		chunk_count += 1
 		
@@ -289,30 +313,29 @@ func build_mesh() -> void:
 	for l_chunk in liquid_chunks:
 		l_chunk.generate_mesh_from_density_grid()
 		
-	print(str(multiplayer.get_unique_id())+ ": " + "Built ", chunk_count, " terrain chunks + liquid.") 
+	print(str(multiplayer.get_unique_id()) + ": " + "Built ", chunk_count, " terrain chunks + liquid.")
 
-func is_in_bounds(x, y, z): 
-	return x > 1 and x < world_size_x - 1 and y > 1 and y < world_size_y - 1 and z > 1 and z < world_size_z - 1 
+func is_in_bounds(x, y, z):
+	return x > 1 and x < world_size_x - 1 and y > 1 and y < world_size_y - 1 and z > 1 and z < world_size_z - 1
 
-func get_cell(x: int, y: int, z: int) -> float: 
+func get_cell(x: int, y: int, z: int) -> float:
 	return density_grid_resource.get_cell(Vector3i(x, y, z), SOLID)
 
-func set_cell(x: int, y: int, z: int, val: float): 
+func set_cell(x: int, y: int, z: int, val: float):
 	density_grid_resource.set_cell(Vector3i(x, y, z), val)
-	var chunk_x = floor(float(x) / chunk_size) 
-	var chunk_y = floor(float(y) / chunk_size) 
-	var chunk_z = floor(float(z) / chunk_size) 
+	var chunk_x = floor(float(x) / chunk_size)
+	var chunk_y = floor(float(y) / chunk_size)
+	var chunk_z = floor(float(z) / chunk_size)
 	
 	var affected_chunk: MCChunk = chunks[to_index(chunk_x, chunk_y, chunk_z)]
 	if affected_chunk:
-		pass 
+		pass
 
-func to_chunk_index(x: int, y: int, z: int) -> int: 
-	return x + y * chunk_size + z * chunk_size * chunk_size 
+func to_chunk_index(x: int, y: int, z: int) -> int:
+	return x + y * chunk_size + z * chunk_size * chunk_size
 
-func to_index(x: int, y: int, z: int) -> int: 
+func to_index(x: int, y: int, z: int) -> int:
 	return x + y * chunk_count_x + z * chunk_count_x * chunk_count_y
-
 
 
 func modify_terrain_additive(position: Vector3, radius: int, is_digging: bool):
@@ -328,11 +351,9 @@ func modify_terrain_additive(position: Vector3, radius: int, is_digging: bool):
 	for x in range(cx - radius, cx + radius + 1):
 		for y in range(cy - radius, cy + radius + 1):
 			for z in range(cz - radius, cz + radius + 1):
-				
 				# Check distance for sphere shape
 				var current_pos = Vector3(x, y, z)
 				if current_pos.distance_squared_to(center) <= r_sq:
-					
 					var grid_pos = Vector3i(x, y, z)
 					
 					# Get current value (defaulting to SOLID/0.0 if uninitialized, 
@@ -373,7 +394,6 @@ func _update_chunks_in_bounds(grid_x, grid_y, grid_z, radius):
 				if cx >= 0 and cx < chunk_count_x and \
 				   cy >= 0 and cy < chunk_count_y and \
 				   cz >= 0 and cz < chunk_count_z:
-					
 					var index = to_index(cx, cy, cz)
 					if index >= 0 and index < chunks.size():
 						var chunk = chunks[index]

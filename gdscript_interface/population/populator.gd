@@ -96,7 +96,7 @@ func populate_level():
 					})
 
 	# --- 2. Procedural Surface Spawns ---
-	var points = poisson_disk_sampler.poisson_disk_sampling(world.surface_normals.keys(), 1)
+	var points = poisson_disk_sampler.poisson_disk_sampling(world.surface_normals.keys(), 15)
  
 
 	for point in points:
@@ -129,7 +129,7 @@ func populate_level():
 			# B. Check Zone Name (New)
 			# If required_zone is set, it MUST match the current zone_name
 			if s.required_zones != [""] and zone_name not in s.required_zones:
-				print("Not required zone")
+				#print("Not required zone")
 				return false
 				
 			return true

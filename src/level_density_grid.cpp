@@ -10,6 +10,9 @@
 // Define missing OGT macros if needed or just use default
 // The library handles it.
 
+#include <godot_cpp/classes/multi_mesh.hpp>
+#include <godot_cpp/variant/transform3d.hpp>
+
 namespace godot {
 
 LevelDensityGrid::LevelDensityGrid() {
@@ -1019,6 +1022,10 @@ void LevelDensityGrid::_bind_methods() {
     BIND_ENUM_CONSTANT(ALGO_FORCE_DIRECTED);
     BIND_ENUM_CONSTANT(ALGO_BSP);
 
+    // Debug
+    ClassDB::bind_method(D_METHOD("get_surface_zones"), &LevelDensityGrid::get_surface_zones);
+    ClassDB::bind_method(D_METHOD("populate_multimesh", "multimesh", "points", "scale"), &LevelDensityGrid::populate_multimesh);
+
     ClassDB::bind_method(D_METHOD("set_water_height_density", "density"), &LevelDensityGrid::set_water_height_density);
     ClassDB::bind_method(D_METHOD("get_water_height_density"), &LevelDensityGrid::get_water_height_density);
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "liquid_water_height_density", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_water_height_density", "get_water_height_density");
@@ -1327,6 +1334,52 @@ void LevelDensityGrid::_place_rooms_bsp(std::vector<ResolvedRoom> &processing_ro
         room.position.x = Math::clamp(room.position.x, 1, gsx - 1 - room.size.x);
         room.position.y = Math::clamp(room.position.y, 1, gsy - 1 - room.size.y);
         room.position.z = Math::clamp(room.position.z, 1, gsz - 1 - room.size.z);
+    }
+}
+
+
+Dictionary LevelDensityGrid::get_surface_zones() const {
+    std::map<int, std::vector<Vector3>> temp_map;
+    Array keys = surface_normals.keys();
+    for(int i=0; i<keys.size(); ++i) {
+        Vector3i pos = keys[i];
+        int z_id = get_zone_at(pos);
+        temp_map[z_id].push_back(Vector3(pos));
+    }
+
+    Dictionary result;
+    for(auto const& [id, vec] : temp_map) {
+        PackedVector3Array pva;
+        pva.resize(vec.size());
+        // memcpy might be faster but vectors are safe
+        for(size_t k=0; k<vec.size(); ++k) {
+            pva[k] = vec[k];
+        }
+        result[id] = pva;
+    }
+    return result;
+}
+
+
+void LevelDensityGrid::populate_multimesh(Object* p_multimesh, const PackedVector3Array& points, float scale) {
+    if (!p_multimesh) {
+        UtilityFunctions::printerr("LevelDensityGrid::populate_multimesh: passed object is null.");
+        return;
+    }
+    MultiMesh* mm = Object::cast_to<MultiMesh>(p_multimesh);
+    if (!mm) {
+        UtilityFunctions::printerr("LevelDensityGrid::populate_multimesh: passed object is not a MultiMesh. It is: ", p_multimesh->get_class());
+        return;
+    }
+    
+    int count = points.size();
+    mm->set_instance_count(count);
+    
+    for(int i=0; i<count; ++i) {
+        Vector3 pos = (points[i] + Vector3(0.5f, 0.5f, 0.5f)) * scale;
+        Transform3D t;
+        t.origin = pos;
+        mm->set_instance_transform(i, t);
     }
 }
 

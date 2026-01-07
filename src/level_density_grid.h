@@ -178,6 +178,11 @@ public:
     int get_liquid_resolution_multiplier() const;
 
     // Vox Integration
+    // ...
+
+    // Debug / Optimization
+    Dictionary get_surface_zones() const;
+    void populate_multimesh(Object* p_multimesh, const PackedVector3Array& points, float scale);
     TypedArray<Dictionary> get_vox_spawns() const;
     void set_vox_inverse_density(bool p_enabled);
     bool get_vox_inverse_density() const;

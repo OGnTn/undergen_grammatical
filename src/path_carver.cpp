@@ -166,13 +166,59 @@ void PathCarver::create_paths_from_edges(DensityGrid* grid, RandomNumberGenerato
         const ResolvedRoom &rA = rooms[edge.from_index];
         const ResolvedRoom &rB = rooms[edge.to_index];
         
-        Vector3 start = rA.center();
-        Vector3 end = rB.center();
+        Vector3 start_point;
+        Vector3 end_point;
+
+        if (connect_from_ground_level) {
+            Vector3i rA_start = rA.position;
+            Vector3i rA_end = rA.position + rA.size;
+            Vector3i rB_start = rB.position;
+            Vector3i rB_end = rB.position + rB.size;
+
+            Vector3 rA_center = rA.center();
+            Vector3 rB_center = rB.center();
+            Vector3 direction_vector = rB_center - rA_center;
+
+            // Start Point Calculation
+            int start_y = Math::max(rA_start.y, 1);
+            int start_x, start_z;
+            
+            if (abs(direction_vector.x) > abs(direction_vector.z)) {
+                // Moving primarily along X
+                start_z = rng->randi_range(rA_start.z, rA_end.z - 1);
+                start_x = (direction_vector.x > 0) ? rA_end.x - 1 : rA_start.x;
+            } else {
+                // Moving primarily along Z
+                start_x = rng->randi_range(rA_start.x, rA_end.x - 1);
+                start_z = (direction_vector.z > 0) ? rA_end.z - 1 : rA_start.z;
+            }
+            start_point = Vector3(start_x, start_y, start_z);
+
+            // End Point Calculation
+            int end_y = Math::max(rB_start.y, 1);
+            int end_x, end_z;
+            
+            if (abs(direction_vector.x) > abs(direction_vector.z)) {
+                // Moving primarily along X
+                end_z = rng->randi_range(rB_start.z, rB_end.z - 1);
+                // If moving +X, we enter from Left (start_x). If moving -X, we enter from Right (end_x-1)
+                end_x = (direction_vector.x > 0) ? rB_start.x : rB_end.x - 1;
+            } else {
+                // Moving primarily along Z
+                end_x = rng->randi_range(rB_start.x, rB_end.x - 1);
+                end_z = (direction_vector.z > 0) ? rB_start.z : rB_end.z - 1;
+            }
+            end_point = Vector3(end_x, end_y, end_z);
+
+        } else {
+            start_point = rA.center();
+            end_point = rB.center();
+        }
 
         if(dungeon_mode) {
-             _carve_dungeon_path(grid, start, end);
+             _carve_dungeon_path(grid, start_point, end_point);
         } else {
-             _carve_bezier_path(grid, rng, wobble_noise, start, end);
+             _carve_bezier_path(grid, rng, wobble_noise, start_point, end_point);
         }
     }
     current_carving_zone_id = 0;
@@ -281,32 +327,21 @@ void PathCarver::_mark_brush(DensityGrid* grid, RandomNumberGenerator* rng, cons
         for (int i = -radius; i <= radius; ++i) {
             for (int j = 0; j <= radius * 2; ++j) { 
                 for (int k = -radius; k <= radius; ++k) {
-                    if (use_square_brush || dungeon_mode) {
-                        Vector3i current_pos = center + Vector3i(i, j, k);
+                    // Box Brush
+                    Vector3i current_pos = center + Vector3i(i, j, k);
+                    
+                    // explicit boundary check (margin 1)
+                    if (current_pos.x > 0 && current_pos.x < gsx - 1 &&
+                        current_pos.y > 0 && current_pos.y < gsy - 1 &&
+                        current_pos.z > 0 && current_pos.z < gsz - 1) {
                         
-                        // Explicit Boundary Check to prevent Crash
-                        if (current_pos.x >= 0 && current_pos.x < gsx &&
-                            current_pos.y >= 0 && current_pos.y < gsy &&
-                            current_pos.z >= 0 && current_pos.z < gsz) {
-                            
-                            grid->set_cell(current_pos, value);
-                        }
-                        // Manual boundary check for Zone safety
+                        grid->set_cell(current_pos, value);
+                            // Manual boundary check for Zone safety
                         if (current_carving_zone_id > 0 && grid->is_valid_position(current_pos)) {
                             if (grid->get_zone_at(current_pos) == 0) {
                                 grid->set_zone_at(current_pos, current_carving_zone_id);
                             }
                         }
-                    } else {
-                         // Sphere logic for dungeon? (Original code: inner check `if (use_square_brush || dungeon_mode)`)
-                         // This block IS `if(dungeon_mode)`. So it always triggers the top branch. 
-                         // Original code had nested logic.
-                         // Let's stick to original logic:
-                         // `if (use_square_brush || dungeon_mode)` -> Box
-                         // `else` -> Sphere
-                         // Wait, the outer loop was `if(dungeon_mode)`.
-                         // This implies dungeon mode always uses box brush behavior effectively in that loop structure.
-                         // I will keep it simple.
                     }
                 }
             }
@@ -327,9 +362,20 @@ void PathCarver::_mark_brush(DensityGrid* grid, RandomNumberGenerator* rng, cons
 
                     if (in_shape) {
                         Vector3i current_pos = center + Vector3i(i, j, k);
-                        // DensityGrid handles bounds in `set_cell`?
-                        // `set_cell` usually returns false if OOB.
-                        grid->set_cell(current_pos, value);
+                        // explicit boundary check (margin 1)
+                        if (current_pos.x > 0 && current_pos.x < gsx - 1 &&
+                            current_pos.y > 0 && current_pos.y < gsy - 1 &&
+                            current_pos.z > 0 && current_pos.z < gsz - 1) {
+                            
+                            grid->set_cell(current_pos, value);
+                            
+                            // Manual boundary check for Zone safety
+                            if (current_carving_zone_id > 0 && grid->is_valid_position(current_pos)) {
+                                if (grid->get_zone_at(current_pos) == 0) {
+                                    grid->set_zone_at(current_pos, current_carving_zone_id);
+                                }
+                            }
+                        }
                     }
                 }
             }
