@@ -48,7 +48,7 @@ var _zone_visualizer = null
 func _update_zone_visualizer():
 	if debug_show_zones:
 		if not _zone_visualizer:
-			var script = load("res://gdscript_interface/debug/zone_visualizer.gd")
+			var script = load("res://systems/debug/zone_visualizer.gd")
 			if script:
 				_zone_visualizer = Node3D.new()
 				_zone_visualizer.set_script(script)

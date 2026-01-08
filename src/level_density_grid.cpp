@@ -139,6 +139,7 @@ void LevelDensityGrid::generate_from_graph(const TypedArray<Dictionary> &node_da
     current_vox_spawns.clear();
     
     // Cache Maps
+    current_vox_spawns.clear();
     current_vox_spawn_map = settings.get("vox_spawn_map", Dictionary());
     current_vox_material_map = settings.get("vox_material_map", Dictionary());
 
@@ -285,6 +286,51 @@ void LevelDensityGrid::generate_from_graph(const TypedArray<Dictionary> &node_da
     // 7. Post-Processing
     if(smooth_terrain) low_pass();
     _calculate_surface_normals();
+
+    // 8. Determine Start/End Positions
+    for (const auto& room : processing_rooms) {
+        String type_lower = room.type.to_lower();
+        
+        if (type_lower.contains("start")) {
+            // Default to center
+            calculated_spawn_position = room.center();
+            
+            // Check for precise VOX spawn
+            if (!room.vox_path.is_empty()) {
+                // Find a spawn point within this room's bounds
+                // Since current_vox_spawns are global grid coords, we just check inclusion (or just match room ID if we tracked it, but spatial check is fine)
+                for (const auto& spawn : current_vox_spawns) {
+                    Vector3 p = spawn.position;
+                    if (p.x >= room.position.x && p.x < room.position.x + room.size.x &&
+                        p.y >= room.position.y && p.y < room.position.y + room.size.y &&
+                        p.z >= room.position.z && p.z < room.position.z + room.size.z) {
+                        calculated_spawn_position = p;
+                        break; // Found one
+                    }
+                }
+            }
+            UtilityFunctions::print("LevelDensityGrid: Start Position set to ", calculated_spawn_position, " (Room: ", room.id, ")");
+        } 
+        else if (type_lower.contains("end")) {
+            // Default to center
+            calculated_end_position = room.center();
+             
+             // Check for precise VOX spawn
+            if (!room.vox_path.is_empty()) {
+                for (const auto& spawn : current_vox_spawns) {
+                    Vector3 p = spawn.position;
+                    // Relaxed bounds check or same strict check
+                    if (p.x >= room.position.x && p.x < room.position.x + room.size.x &&
+                        p.y >= room.position.y && p.y < room.position.y + room.size.y &&
+                        p.z >= room.position.z && p.z < room.position.z + room.size.z) {
+                        calculated_end_position = p;
+                        break; 
+                    }
+                }
+            }
+            UtilityFunctions::print("LevelDensityGrid: End Position set to ", calculated_end_position, " (Room: ", room.id, ")");
+        }
+    }
 }
 
 void LevelDensityGrid::_apply_noise() {
@@ -764,7 +810,7 @@ Ref<DensityGrid> LevelDensityGrid::generate_liquid_grid() {
     return liquid_gen.generate_liquid_grid(this);
 }
 
-// --- Getters / Setters ---
+
 
 // Noise
 void LevelDensityGrid::set_noise_scale(float p_scale) { noise_scale = p_scale; }
@@ -1034,6 +1080,8 @@ void LevelDensityGrid::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_liquid_resolution_multiplier", "multiplier"), &LevelDensityGrid::set_liquid_resolution_multiplier);
     ClassDB::bind_method(D_METHOD("get_liquid_resolution_multiplier"), &LevelDensityGrid::get_liquid_resolution_multiplier);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "liquid_resolution_multiplier", PROPERTY_HINT_RANGE, "1,8,1"), "set_liquid_resolution_multiplier", "get_liquid_resolution_multiplier");
+
+
 }
 
 void LevelDensityGrid::set_placement_algorithm(PlacementAlgorithm p_algo) {

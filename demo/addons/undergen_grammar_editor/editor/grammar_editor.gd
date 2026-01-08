@@ -138,8 +138,6 @@ func _ready():
 	graph_container.add_child(graph_edit)
 
 
-
-
 func _load_rule_list():
 	rule_list.clear()
 	if !current_resource: return
@@ -149,7 +147,7 @@ func _load_rule_list():
 		rule_list.add_item(rule.rule_name + " (" + rule.lhs_symbol + ")")
 
 func _on_add_rule():
-	if !current_resource: 
+	if !current_resource:
 		printerr("Grammar Editor: current_resource is NULL")
 		return
 	
@@ -178,6 +176,9 @@ func _load_graph_from_rule(rule: GraphRule):
 	for c in graph_edit.get_children():
 		if c is GraphNode: c.queue_free()
 		
+	# Reset entry/exit if not present (backward compatibility handled by export default)
+
+		
 	# Update Toolbar
 	var lhs = find_child("LHSEdit", true, false)
 	if lhs: lhs.text = rule.lhs_symbol
@@ -192,7 +193,7 @@ func _load_graph_from_rule(rule: GraphRule):
 	var id_map = {}
 	for n_data in rule.rhs_nodes:
 		var g_node = _create_graph_node_ui(n_data["symbol"])
-		g_node.name = n_data["id"] 
+		g_node.name = n_data["id"]
 		g_node.position_offset = n_data.get("editor_pos", Vector2(100, 100))
 		
 		# Set properties in UI slots
@@ -221,7 +222,7 @@ func _load_graph_from_rule(rule: GraphRule):
 				g_node.get_node("Content/ConstraintBox/RelativeOffEdit").text = "%.1f,%.1f,%.1f" % [off.x, off.y, off.z]
 		
 	# CONNECT TO
-		if n_data.has("connect_to"): 
+		if n_data.has("connect_to"):
 			var ct = n_data["connect_to"]
 			g_node.get_node("Content/ConnectBox/ConnectTargetEdit").text = ct.get("target", "")
 		
@@ -229,6 +230,13 @@ func _load_graph_from_rule(rule: GraphRule):
 			g_node.get_node("Content/ConstraintBox/FixedCheck").button_pressed = true
 			var v = constraints["fixed_pos"]
 			g_node.get_node("Content/ConstraintBox/FixedEdit").text = "%.1f,%.1f,%.1f" % [v.x, v.y, v.z]
+			
+		# Set Roles
+		if rule.entry_node_id == n_data["id"]:
+			g_node.get_node("Content/RoleBox/EntryCheck").button_pressed = true
+		if rule.exit_node_id == n_data["id"]:
+			g_node.get_node("Content/RoleBox/ExitCheck").button_pressed = true
+
 		
 		graph_edit.add_child(g_node)
 		id_map[n_data["id"]] = g_node.name
@@ -272,19 +280,37 @@ func _on_delete_nodes_request(nodes):
 					if edge_metadata.has(key): edge_metadata.erase(key)
 
 
-func _create_graph_node_ui(symbol_text="Symbol"):
+func _create_graph_node_ui(symbol_text = "Symbol"):
 	var gn = GraphNode.new()
 	gn.title = "Room Node"
 	
-	gn.set_slot(0, true, 0, Color.WHITE, true, 0, Color.WHITE) 
+	gn.set_slot(0, true, 0, Color.WHITE, true, 0, Color.WHITE)
 	
 	var vbox = VBoxContainer.new()
 	vbox.name = "Content"
-	gn.add_child(vbox) 
+	gn.add_child(vbox)
 	
 	var lbl = Label.new()
 	lbl.text = "Room Type / Symbol:"
 	vbox.add_child(lbl)
+	
+	# ROLES UI
+	var role_box = HBoxContainer.new()
+	role_box.name = "RoleBox"
+	vbox.add_child(role_box)
+	
+	var entry_chk = CheckBox.new()
+	entry_chk.name = "EntryCheck"
+	entry_chk.text = "Input"
+	entry_chk.tooltip_text = "Incoming edges connect here"
+	role_box.add_child(entry_chk)
+	
+	var exit_chk = CheckBox.new()
+	exit_chk.name = "ExitCheck"
+	exit_chk.text = "Output"
+	exit_chk.tooltip_text = "Outgoing edges start here"
+	role_box.add_child(exit_chk)
+
 	
 	var edit = LineEdit.new()
 	edit.name = "SymbolEdit"
@@ -375,7 +401,7 @@ func _create_graph_node_ui(symbol_text="Symbol"):
 	fix_edit.placeholder_text = "x,y,z"
 	cbox.add_child(fix_edit)
 	
-	return gn 
+	return gn
 
 
 func _add_graph_node_ui():
@@ -426,7 +452,7 @@ func _on_actions_changed(txt):
 		# find_child("ActionsEdit").modulate = Color(1,1,1)
 
 func _on_save():
-	if !current_resource or current_rule_idx < 0: 
+	if !current_resource or current_rule_idx < 0:
 		if current_resource: ResourceSaver.save(current_resource)
 		return
 	
@@ -434,6 +460,9 @@ func _on_save():
 	var rule = current_resource.rules[current_rule_idx]
 	rule.rhs_nodes.clear()
 	rule.rhs_edges.clear()
+	rule.entry_node_id = ""
+	rule.exit_node_id = ""
+
 	
 	var connections = graph_edit.get_connection_list()
 	
@@ -444,7 +473,7 @@ func _on_save():
 				"symbol": child.get_node("Content/SymbolEdit").text,
 				"vox_path": child.get_node("Content/VoxEdit").text,
 				"editor_pos": child.position_offset,
-				"constraints": {} 
+				"constraints": {}
 			}
 			
 			# SAVE SIZES
@@ -481,7 +510,14 @@ func _on_save():
 				if parts.size() == 3:
 					node_data["constraints"]["fixed_pos"] = Vector3(parts[0].to_float(), parts[1].to_float(), parts[2].to_float())
 			
+			# SAVE ROLES
+			if child.get_node("Content/RoleBox/EntryCheck").button_pressed:
+				rule.entry_node_id = node_data["id"]
+			if child.get_node("Content/RoleBox/ExitCheck").button_pressed:
+				rule.exit_node_id = node_data["id"]
+
 			rule.rhs_nodes.append(node_data)
+
 			
 	for conn in connections:
 		var key = conn["from_node"] + "_" + conn["to_node"]

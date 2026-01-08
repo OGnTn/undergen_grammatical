@@ -12,16 +12,16 @@ func _init(p_grammar: LevelGrammarResource, seed_val: int):
 func generate(iterations: int = 4, initial_state: Dictionary = {}, max_nodes: int = 100) -> Dictionary:
     # 1. Initialize State & Axiom
     var state = initial_state.duplicate()
-    var nodes = [] 
-    var edges = [] 
+    var nodes = []
+    var edges = []
     
     var root_node = {
         "id": "root",
         "symbol": grammar.axiom,
         "type": "generic", # Mapping symbol->type?
-        "min_size": Vector3i(5,5,5),
-        "max_size": Vector3i(10,10,10),
-        "constraints": {"fixed_pos": Vector3(0,0,0)} 
+        "min_size": Vector3i(5, 5, 5),
+        "max_size": Vector3i(10, 10, 10),
+        "constraints": {"fixed_pos": Vector3(0, 0, 0)}
     }
     nodes.append(root_node)
     
@@ -65,12 +65,13 @@ func generate(iterations: int = 4, initial_state: Dictionary = {}, max_nodes: in
                     var new_n = {
                         "id": unique_id,
                         "symbol": rhs_n["symbol"],
-                        "type": rhs_n.get("symbol", "generic").to_lower(), 
+                        "type": rhs_n.get("symbol", "generic").to_lower(),
                         "constraints": rhs_n.get("constraints", {}).duplicate()
                     }
                     if rhs_n.has("min_size"): new_n["min_size"] = rhs_n["min_size"]
                     if rhs_n.has("max_size"): new_n["max_size"] = rhs_n["max_size"]
                     if rhs_n.has("vox_path"): new_n["vox_path"] = rhs_n["vox_path"]
+                    if rhs_n.has("connect_to"): new_n["connect_to"] = rhs_n["connect_to"]
                     
                     # Resolve Relative Constraints
                     var c = new_n["constraints"]
@@ -99,11 +100,20 @@ func generate(iterations: int = 4, initial_state: Dictionary = {}, max_nodes: in
                         "type": rhs_e.get("type", "corridor") # Propagate Type
                     })
                 
-                # Determine Entry Point (First defined node in RHS)
+                # Determine Entry/Exit Points
                 var entry_id = sub_nodes[0]["id"] if sub_nodes.size() > 0 else node["id"]
+                var exit_id = entry_id # Default to same node if not specified
+                
+                if rule.entry_node_id != "" and id_map.has(rule.entry_node_id):
+                    entry_id = id_map[rule.entry_node_id]
+                    
+                if rule.exit_node_id != "" and id_map.has(rule.exit_node_id):
+                    exit_id = id_map[rule.exit_node_id]
+
                 
                 replacements[node["id"]] = {
                     "entry": entry_id,
+                    "exit": exit_id,
                     "nodes": sub_nodes,
                     "edges": sub_edges
                 }
@@ -138,7 +148,7 @@ func generate(iterations: int = 4, initial_state: Dictionary = {}, max_nodes: in
             
             var new_from = from
             if replacements.has(from):
-                new_from = replacements[from]["entry"]
+                new_from = replacements[from]["exit"]
             
             var new_to = to
             if replacements.has(to):
@@ -173,23 +183,20 @@ func generate(iterations: int = 4, initial_state: Dictionary = {}, max_nodes: in
                 var other = nodes[j]
                 
                 # Check symbol match (case insensitive?)
-                if other.get("symbol", "") == target_sym or target_sym == "": 
+                if other.get("symbol", "") == target_sym or target_sym == "":
                     # Check if edge already exists? (Expensive O(E))
                     # For now assume multigraph is OK or handled by logic
-                    
                     # Calculate Logic Distance (Topology Distance? No, physics distance is unknown yet)
                     # We can only reliably use "Random" or "First" at this stage really..
                     # UNLESS user means "Closest in Graph Topology" (BFS)
                     # OR we wait until C++ physics step to resolve this?
                     # BUT we need to output EDGES for the solver.
-                    
                     # Wait. If we are in Grammar Generator, we have NO spatial information.
                     # We only create logical edges.
                     # "Closest" implies spatial.
                     # This logic FLIPS functionality.
                     # If the user wants a loop, they want a LOGICAL connection.
                     # So "Closest" is ambiguous.
-                    
                     # Alternative: "Random" valid target.
                     candidates.append(j)
             
@@ -206,7 +213,7 @@ func generate(iterations: int = 4, initial_state: Dictionary = {}, max_nodes: in
 
     edges.append_array(connection_edges)
 
-    return { "nodes": nodes, "edges": edges }
+    return {"nodes": nodes, "edges": edges}
 
 func _pick_rule(candidates: Array, state: Dictionary) -> GraphRule:
     var valid_rules = []
@@ -219,7 +226,7 @@ func _pick_rule(candidates: Array, state: Dictionary) -> GraphRule:
             if _evaluate_condition(r.condition, state):
                 valid_rules.append(r)
     
-    if valid_rules.is_empty(): 
+    if valid_rules.is_empty():
         return null
         
     var roll = rng.randf()
@@ -242,9 +249,8 @@ func _evaluate_condition(cond: String, state: Dictionary) -> bool:
     # Simple expression parser: "key < 3"
     # Supported ops: <, >, <=, >=, ==, !=
     # Format: "VAR OP VALUE"
-    
     var parts = cond.split(" ")
-    if parts.size() != 3: 
+    if parts.size() != 3:
         print("Grammar: Invalid condition format '%s'" % cond)
         return false
         

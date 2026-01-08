@@ -3,6 +3,8 @@ class_name GraphRule extends Resource
 @export var rule_name: String = "New Rule"
 @export var lhs_symbol: String = "Room" # The symbol to replace
 @export var probability: float = 1.0
+@export var entry_node_id: String = ""
+@export var exit_node_id: String = ""
 
 # State Logic
 @export var condition: String = "" # e.g. "keys < 3"
