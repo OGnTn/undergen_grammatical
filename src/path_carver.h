@@ -36,6 +36,14 @@ public:
     // AStar specific
     int dungeon_path_algorithm = ALGO_ASTAR;
 
+    // Organic Cave Config
+    float cave_ruggedness = 1.0f; // General noise intensity
+    float cave_floor_ruggedness = 0.0f; // Stalagmites
+    float cave_ceiling_ruggedness = 0.0f; // Stalactites 
+    float cave_width_noise = 0.0f; // Varies the width along the path
+    float floor_flattening = 0.0f; // 0.0 = round, 1.0 = flat floor
+    float overhang_openness = 0.0f; // 0.0 = tube, > 0.0 = wider top (trapezoid/keyhole)
+
     // State
     int current_carving_zone_id = 0;
 
@@ -76,6 +84,9 @@ private:
     void _carve_recursive_winding_path(DensityGrid* grid, RandomNumberGenerator* rng, const Vector3i &start, const Vector3i &end, int depth);
     void _carve_stepped_L_shape(DensityGrid* grid, RandomNumberGenerator* rng, const Vector3i &start, const Vector3i &end);
     void _carve_variable_height_leg(DensityGrid* grid, RandomNumberGenerator* rng, const Vector3i &start, const Vector3i &end);
+    
+    // Advanced Brushing
+    void _carve_complex_brush(DensityGrid* grid, const Vector3i &center, int radius, Ref<FastNoiseLite> noise);
     
     // Bezier
     // (Logic integrated into connect_rooms directly in original code)

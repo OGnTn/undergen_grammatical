@@ -309,7 +309,120 @@ void PathCarver::_carve_bezier_path(DensityGrid* grid, RandomNumberGenerator* rn
                 final_point.z += wobble_noise->get_noise_1d(point_on_curve.z * path_wobble_frequency + 2000.0f) * path_wobble_magnitude;
             }
             
-            _mark_brush(grid, rng, Vector3i(final_point), path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+            // Varying width noise
+            int eff_radius = path_brush_min_radius;
+            if (cave_width_noise > 0.001f && wobble_noise.is_valid()) {
+                 float w_noise = wobble_noise->get_noise_1d(static_cast<float>(k) * 0.1f + j * 10.0f); // vary along path
+                 eff_radius = (int)((float)path_brush_min_radius * (1.0f + w_noise * cave_width_noise));
+                 if (eff_radius < 1) eff_radius = 1;
+            } else {
+                 // Use range if no varying noise, otherwise single radius
+                 eff_radius = (path_brush_min_radius == path_brush_max_radius) ? path_brush_min_radius : rng->randi_range(path_brush_min_radius, path_brush_max_radius);
+            }
+
+            _carve_complex_brush(grid, Vector3i(final_point), eff_radius, wobble_noise);
+        }
+    }
+}
+
+void PathCarver::_carve_complex_brush(DensityGrid* grid, const Vector3i &center, int radius, Ref<FastNoiseLite> noise) {
+    if (radius <= 0) return;
+    
+    // Bounds check optimization
+    int gsx = grid->get_grid_size_x();
+    int gsy = grid->get_grid_size_y();
+    int gsz = grid->get_grid_size_z();
+    
+    if (center.x + radius < 0 || center.x - radius >= gsx ||
+        center.y + radius < 0 || center.y - radius >= gsy ||
+        center.z + radius < 0 || center.z - radius >= gsz) {
+        return;
+    }
+
+    // Iterate bounding box
+    // To handle "ruggedness" effectively, we might need a slightly larger bounding box than just 'radius' 
+    // if the noise adds to it. But generally 'radius' is the target average.
+    // Let's pad slightly if ruggedness is high.
+    int pad = (int)Math::ceil(Math::max(cave_ruggedness, Math::max(cave_floor_ruggedness, cave_ceiling_ruggedness)) * 2.0f);
+    int iter_rad = radius + pad;
+
+    for (int i = -iter_rad; i <= iter_rad; ++i) {
+        for (int j = -iter_rad; j <= iter_rad; ++j) {
+            for (int k = -iter_rad; k <= iter_rad; ++k) {
+                Vector3 offset(i, j, k);
+                Vector3i pos = center + Vector3i(i, j, k);
+
+                if (!grid->is_valid_position(pos)) continue;
+
+                // 1. Base Distance
+                float dist = offset.length();
+
+                // 2. Overhang (Modify apparent vertical distance)
+                // If y > 0, we shrink the apparent vertical capability to make it look wider?
+                // Actually, to make it wider at top, we want 'dist' to be smaller for same offset.
+                // Keyhole: Top is wide, Bottom is narrow.
+                // If j > 0 (top), we multiply j by something < 1.0 (squash) -> implies wider shape
+                // OR we can just modify the target radius.
+                float current_radius_target = (float)radius;
+                
+                if (overhang_openness > 0.001f) {
+                   // Trapezoidal logic: 
+                   // If j > 0, radius expands.
+                   // If j < 0, radius shrinks?
+                   float rel_y = (float)j / (float)radius; // -1 to 1
+                   // curve: 1.0 + rel_y * factor
+                   float shape_factor = 1.0f + (rel_y * overhang_openness); 
+                   // Clamp to avoid inverted shapes if extreme
+                   if (shape_factor < 0.1f) shape_factor = 0.1f;
+                   
+                   current_radius_target *= shape_factor;
+                }
+
+                // 3. Noise / Ruggedness
+                if (noise.is_valid()) {
+                    // Use world coordinates for noise continuity
+                    float n_val = noise->get_noise_3d(pos.x, pos.y, pos.z); 
+                    
+                    // General wall ruggedness
+                    current_radius_target += n_val * cave_ruggedness * 3.0f; // * 3.0 arbitrary scaling
+                    
+                    // Specific Floor/Ceiling
+                    if (j < -radius/3) { // Floor area
+                         float n_floor = noise->get_noise_3d(pos.x, pos.y * 2.0f, pos.z);
+                         // Stalagmites: noise reduces radius (grows into cave)
+                         // If n_floor is positive -> adds to radius (hole gets bigger)
+                         // If n_floor is negative -> subtracts (rock stays)
+                         // We want stalagmites (rock sticking up). So we want to SUBTRACT from radius.
+                         // But noise is -1..1.
+                         current_radius_target -= Math::abs(n_floor) * cave_floor_ruggedness * 4.0f;
+                    } 
+                    else if (j > radius/3) { // Ceiling area
+                         float n_ceil = noise->get_noise_3d(pos.x, pos.y * 2.0f + 500, pos.z);
+                         // Stalactites
+                         current_radius_target -= Math::abs(n_ceil) * cave_ceiling_ruggedness * 4.0f;
+                    }
+                }
+
+                // 4. Floor Flattening
+                // If we are deep enough (low Y), we forcefully mask out.
+                if (floor_flattening > 0.001f) {
+                    float bottom_threshold = -(float)radius * (1.0f - floor_flattening);
+                    if ((float)j < bottom_threshold) {
+                         continue; // Don't carve this (leave as separate ground or solid)
+                    }
+                }
+
+                // Final check
+                if (dist < current_radius_target) {
+                    grid->set_cell(pos, WORLD_OPEN_VALUE);
+                     // Manual boundary check for Zone safety
+                    if (current_carving_zone_id > 0) {
+                        if (grid->get_zone_at(pos) == 0) {
+                            grid->set_zone_at(pos, current_carving_zone_id);
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -158,6 +158,20 @@ public:
     float get_path_wobble_frequency() const;
     void set_connect_from_ground_level(bool p_enabled);
     bool get_connect_from_ground_level() const;
+    
+    // Organic Cave Config
+    void set_cave_ruggedness(float p_val);
+    float get_cave_ruggedness() const;
+    void set_cave_floor_ruggedness(float p_val);
+    float get_cave_floor_ruggedness() const;
+    void set_cave_ceiling_ruggedness(float p_val);
+    float get_cave_ceiling_ruggedness() const;
+    void set_cave_width_noise(float p_val);
+    float get_cave_width_noise() const;
+    void set_floor_flattening(float p_val);
+    float get_floor_flattening() const;
+    void set_overhang_openness(float p_val);
+    float get_overhang_openness() const;
 
     // Smoothing
     void set_smooth_terrain(bool p_enabled);

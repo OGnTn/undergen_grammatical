@@ -1031,6 +1031,24 @@ float LevelDensityGrid::get_path_wobble_frequency() const { return path_carver.p
 void LevelDensityGrid::set_connect_from_ground_level(bool p_enabled) { path_carver.connect_from_ground_level = p_enabled; }
 bool LevelDensityGrid::get_connect_from_ground_level() const { return path_carver.connect_from_ground_level; }
 
+void LevelDensityGrid::set_cave_ruggedness(float p_val) { path_carver.cave_ruggedness = p_val >= 0.0f ? p_val : 0.0f; }
+float LevelDensityGrid::get_cave_ruggedness() const { return path_carver.cave_ruggedness; }
+
+void LevelDensityGrid::set_cave_floor_ruggedness(float p_val) { path_carver.cave_floor_ruggedness = p_val >= 0.0f ? p_val : 0.0f; }
+float LevelDensityGrid::get_cave_floor_ruggedness() const { return path_carver.cave_floor_ruggedness; }
+
+void LevelDensityGrid::set_cave_ceiling_ruggedness(float p_val) { path_carver.cave_ceiling_ruggedness = p_val >= 0.0f ? p_val : 0.0f; }
+float LevelDensityGrid::get_cave_ceiling_ruggedness() const { return path_carver.cave_ceiling_ruggedness; }
+
+void LevelDensityGrid::set_cave_width_noise(float p_val) { path_carver.cave_width_noise = p_val >= 0.0f ? p_val : 0.0f; }
+float LevelDensityGrid::get_cave_width_noise() const { return path_carver.cave_width_noise; }
+
+void LevelDensityGrid::set_floor_flattening(float p_val) { path_carver.floor_flattening = Math::clamp(p_val, 0.0f, 1.0f); }
+float LevelDensityGrid::get_floor_flattening() const { return path_carver.floor_flattening; }
+
+void LevelDensityGrid::set_overhang_openness(float p_val) { path_carver.overhang_openness = p_val >= 0.0f ? p_val : 0.0f; }
+float LevelDensityGrid::get_overhang_openness() const { return path_carver.overhang_openness; }
+
 
 
 // Smoothing (On Helper)
@@ -1182,6 +1200,34 @@ void LevelDensityGrid::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_connect_from_ground_level", "enabled"), &LevelDensityGrid::set_connect_from_ground_level);
     ClassDB::bind_method(D_METHOD("get_connect_from_ground_level"), &LevelDensityGrid::get_connect_from_ground_level);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "path_connect_from_ground_level"), "set_connect_from_ground_level", "get_connect_from_ground_level");
+
+
+    // Organic Settings
+    ADD_SUBGROUP("Organic Cave Settings", "path_organic_");
+    
+    ClassDB::bind_method(D_METHOD("set_cave_ruggedness", "ruggedness"), &LevelDensityGrid::set_cave_ruggedness);
+    ClassDB::bind_method(D_METHOD("get_cave_ruggedness"), &LevelDensityGrid::get_cave_ruggedness);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_organic_ruggedness", PROPERTY_HINT_RANGE, "0.0,5.0,0.1"), "set_cave_ruggedness", "get_cave_ruggedness");
+
+    ClassDB::bind_method(D_METHOD("set_cave_floor_ruggedness", "ruggedness"), &LevelDensityGrid::set_cave_floor_ruggedness);
+    ClassDB::bind_method(D_METHOD("get_cave_floor_ruggedness"), &LevelDensityGrid::get_cave_floor_ruggedness);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_organic_floor_ruggedness", PROPERTY_HINT_RANGE, "0.0,5.0,0.1"), "set_cave_floor_ruggedness", "get_cave_floor_ruggedness");
+
+    ClassDB::bind_method(D_METHOD("set_cave_ceiling_ruggedness", "ruggedness"), &LevelDensityGrid::set_cave_ceiling_ruggedness);
+    ClassDB::bind_method(D_METHOD("get_cave_ceiling_ruggedness"), &LevelDensityGrid::get_cave_ceiling_ruggedness);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_organic_ceiling_ruggedness", PROPERTY_HINT_RANGE, "0.0,5.0,0.1"), "set_cave_ceiling_ruggedness", "get_cave_ceiling_ruggedness");
+
+    ClassDB::bind_method(D_METHOD("set_cave_width_noise", "noise"), &LevelDensityGrid::set_cave_width_noise);
+    ClassDB::bind_method(D_METHOD("get_cave_width_noise"), &LevelDensityGrid::get_cave_width_noise);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_organic_width_noise", PROPERTY_HINT_RANGE, "0.0,2.0,0.1"), "set_cave_width_noise", "get_cave_width_noise");
+
+    ClassDB::bind_method(D_METHOD("set_floor_flattening", "flattening"), &LevelDensityGrid::set_floor_flattening);
+    ClassDB::bind_method(D_METHOD("get_floor_flattening"), &LevelDensityGrid::get_floor_flattening);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_organic_floor_flattening", PROPERTY_HINT_RANGE, "0.0,1.0,0.05"), "set_floor_flattening", "get_floor_flattening");
+
+    ClassDB::bind_method(D_METHOD("set_overhang_openness", "openness"), &LevelDensityGrid::set_overhang_openness);
+    ClassDB::bind_method(D_METHOD("get_overhang_openness"), &LevelDensityGrid::get_overhang_openness);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "path_organic_overhang_openness", PROPERTY_HINT_RANGE, "0.0,1.0,0.05"), "set_overhang_openness", "get_overhang_openness");
 
 
     // Smoothing Group

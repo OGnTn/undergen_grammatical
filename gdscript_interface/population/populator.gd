@@ -28,7 +28,7 @@ func prepare_spawn_list(p_spawn_list: Array[WorldSpawnableObject]):
 	for i in range(active_spawn_source.size()):
 		var spawn_res = active_spawn_source[i]
 		
-		if not spawn_res or not spawn_res.scene: 
+		if not spawn_res or not spawn_res.scene:
 			print("DEBUG: Item %d is null or missing scene, skipping" % i)
 			continue
 		
@@ -119,10 +119,10 @@ func populate_level():
 		var zone_id_int = world.density_grid_resource.get_zone_at(grid_pos)
 		var zone_name = world.density_grid_resource.get_zone_name_by_id(zone_id_int)
 		# 3. Filter candidates based on Slope AND Zone
-		var valid_candidates = active_spawn_source.filter(func(s): 
+		var valid_candidates = active_spawn_source.filter(func(s):
 			# A. Check Slope (Existing)
 			var slope_ok = point_normal.y >= s.normal_y_min and point_normal.y <= s.normal_y_max
-			if not slope_ok: 
+			if not slope_ok:
 				print("Slope not okay")
 				return false
 			
@@ -135,7 +135,7 @@ func populate_level():
 			return true
 		)
 		
-		if valid_candidates.is_empty(): 
+		if valid_candidates.is_empty():
 			continue
 		
 		# 4. Shuffle candidates so high-index items don't get priority
@@ -145,7 +145,7 @@ func populate_level():
 		for candidate in valid_candidates:
 			# Rarity Check
 			if randf() > candidate.spawn_chance:
-				continue 
+				continue
 			
 			# Pre-calculate transform
 			var target_transform = calculate_transform(true_pos, point_normal, candidate)
@@ -182,7 +182,7 @@ func _process(_delta):
 		var path_key = data["scene_path"]
 		
 		if not resource_cache.has(path_key):
-			spawn_queue.pop_front() 
+			spawn_queue.pop_front()
 			continue
 
 		# Delegate actual instantiation to the Spawner
@@ -200,8 +200,8 @@ func calculate_transform(pos: Vector3, normal: Vector3, settings: WorldSpawnable
 	var t = Transform3D()
 	
 	# 1. Position
-	var world_pos = pos * world.cube_size 
-	t.origin = world_pos 
+	var world_pos = pos * world.cube_size
+	t.origin = world_pos
 	
 	# 2. Alignment
 	if settings.align_to_surface_normal:
@@ -224,13 +224,13 @@ func is_space_clear_voxel(target_transform: Transform3D, settings: WorldSpawnabl
 	
 	var bounds = settings.scan_bounds
 	if !settings.align_to_surface_normal: # Assuming gravity object
-		bounds.end.y -= 0.2 
+		bounds.end.y -= 0.2
 	
 	var start = bounds.position
 	var end = bounds.end
 	var step = cube_size
 	
-	var epsilon = 0.01 
+	var epsilon = 0.01
 	
 	var x = start.x
 	while x <= end.x + epsilon:
@@ -238,11 +238,10 @@ func is_space_clear_voxel(target_transform: Transform3D, settings: WorldSpawnabl
 		while y <= end.y + epsilon:
 			var z = start.z
 			while z <= end.z + epsilon:
-				
 				# Clamp the check to the exact bounds so we don't overshoot
 				var check_pos_local = Vector3(
-					min(x, end.x), 
-					min(y, end.y), 
+					min(x, end.x),
+					min(y, end.y),
 					min(z, end.z)
 				)
 				
@@ -255,7 +254,7 @@ func is_space_clear_voxel(target_transform: Transform3D, settings: WorldSpawnabl
 				# Check for collision (Density > threshold means solid ground)
 				# We want empty space (Density < threshold)
 				if density > (threshold - 0.1):
-					return false 
+					return false
 
 				z += step
 			y += step
