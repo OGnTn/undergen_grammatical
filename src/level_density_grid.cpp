@@ -6,6 +6,8 @@
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/core/math.hpp> 
 #include <godot_cpp/classes/time.hpp>
+#include <cstring>
+#include <vector>
 
 // Define missing OGT macros if needed or just use default
 // The library handles it.
@@ -40,12 +42,15 @@ void LevelDensityGrid::generate_level_data(const Vector3i &world_grid_dimensions
     UtilityFunctions::print("Generating Level Data for Grid Size: ", world_grid_dimensions, " with seed: ", seed);
 
     Time* time = Time::get_singleton();
-    uint64_t start_total = time->get_ticks_msec();
+    uint64_t start_total = time->get_ticks_usec();
     
     uint64_t t_init_grid = 0;
-    uint64_t t_rooms_paths = 0;
+    uint64_t t_rooms_gen = 0;
+    uint64_t t_connect_rooms = 0;
+    uint64_t t_noise = 0;
     uint64_t t_smoothing = 0;
     uint64_t t_normals = 0;
+    uint64_t t_resolve = 0;
 
     // 1. Initialize & Seed
     uint64_t t1 = time->get_ticks_usec();
@@ -65,15 +70,12 @@ void LevelDensityGrid::generate_level_data(const Vector3i &world_grid_dimensions
     // 2. Generate Rooms (Delegated)
     int placed_count = 0;
     
-    // Pass config to generator (or generator uses its internal config? We need to sync config)
-    // Actually, our Getters/Setters update the component config directly. 
-    // EXCEPT: if properties are not synced?
-    // In set_room_count, we do `room_gen.room_count = p_count`.
-    // So the component state is already current.
-    
     // Note: RoomGenerator needs `DensityGrid*`, `RNG*`.
     TypedArray<Dictionary> generated_rooms = room_gen.generate_rooms(this, rng.ptr(), placed_count);
     
+    uint64_t t3 = time->get_ticks_usec();
+    t_rooms_gen = (t3 - t2);
+
     // 3. Connect Rooms (Delegated)
     path_carver.connect_rooms(
         this, 
@@ -85,9 +87,10 @@ void LevelDensityGrid::generate_level_data(const Vector3i &world_grid_dimensions
         calculated_end_position
     );
     
-    // Populate resolved_rooms local cache for 'get_room_type_at' if needed?
-    // generated_rooms is TypedArray<Dictionary>. resolved_rooms is std::vector<ResolvedRoom>.
-    // To support `get_room_type_at`, we need to populate `resolved_rooms`.
+    uint64_t t4 = time->get_ticks_usec();
+    t_connect_rooms = (t4 - t3);
+
+    // 4. Resolve Cache
     resolved_rooms.clear();
     for(int i=0; i<generated_rooms.size(); ++i) {
         Dictionary d = generated_rooms[i];
@@ -98,41 +101,52 @@ void LevelDensityGrid::generate_level_data(const Vector3i &world_grid_dimensions
         resolved_rooms.push_back(r);
     }
     
-    uint64_t t3 = time->get_ticks_usec();
-    t_rooms_paths = (t3 - t2);
+    uint64_t t5 = time->get_ticks_usec();
+    t_resolve = (t5 - t4);
 
-    // 4. Apply Noise (Internal)
+    // 5. Apply Noise (Internal)
     _apply_noise();
+    
+    uint64_t t6 = time->get_ticks_usec();
+    t_noise = (t6 - t5);
 
-    // 5. Optional Smoothing
-    // 5. Optional Smoothing
+    // 6. Optional Smoothing
     if (smooth_terrain && !path_carver.use_square_brush) {
         UtilityFunctions::print("Smoothing terrain with strength: ", smoothing_strength);
         low_pass();
     }
     
-    uint64_t t4 = time->get_ticks_usec();
-    t_smoothing = (t4 - t3);
+    uint64_t t7 = time->get_ticks_usec();
+    t_smoothing = (t7 - t6);
 
-    // 6. Calculate Surface Normals
+    // 7. Calculate Surface Normals
     _calculate_surface_normals();
     
-    uint64_t t5 = time->get_ticks_usec();
-    t_normals = (t5 - t4);
+    uint64_t t8 = time->get_ticks_usec();
+    t_normals = (t8 - t7);
 
-    uint64_t end_total = time->get_ticks_msec();
+    uint64_t end_total = time->get_ticks_usec();
+    double total_ms = (end_total - start_total) / 1000.0;
 
-    UtilityFunctions::print("=== Generation Profiling ===");
-    UtilityFunctions::print("Total Time:      ", end_total - start_total, " ms");
+    UtilityFunctions::print("=== Generation Profiling (LevelDensityGrid) ===");
+    UtilityFunctions::print("Total Time:      ", total_ms, " ms");
     UtilityFunctions::print("---------------------------");
-    UtilityFunctions::print("Grid Init:       ", t_init_grid / 1000, " ms");
-    UtilityFunctions::print("Rooms & Paths:   ", t_rooms_paths / 1000, " ms");
-    UtilityFunctions::print("Smoothing:       ", t_smoothing / 1000, " ms");
-    UtilityFunctions::print("Surface Normals: ", t_normals / 1000, " ms");
+    UtilityFunctions::print("1. Grid Init:    ", t_init_grid / 1000.0, " ms");
+    UtilityFunctions::print("2. Rooms Gen:    ", t_rooms_gen / 1000.0, " ms");
+    UtilityFunctions::print("3. Connect Rooms:", t_connect_rooms / 1000.0, " ms");
+    UtilityFunctions::print("4. Resolve Cache:", t_resolve / 1000.0, " ms");
+    UtilityFunctions::print("5. Apply Noise:  ", t_noise / 1000.0, " ms");
+    UtilityFunctions::print("6. Smoothing:    ", t_smoothing / 1000.0, " ms");
+    UtilityFunctions::print("7. Surf Normals: ", t_normals / 1000.0, " ms");
     UtilityFunctions::print("===========================");
 }
 
 void LevelDensityGrid::generate_from_graph(const TypedArray<Dictionary> &node_data, const TypedArray<Dictionary> &edge_data, float voxel_size, int64_t seed, Dictionary settings) {
+    // Profiling
+    Time* time = Time::get_singleton();
+    uint64_t t_start_total = time->get_ticks_usec();
+    uint64_t t1 = t_start_total;
+
     // 1. Initialize
     initialize_grid(get_grid_size_x(), get_grid_size_y(), get_grid_size_z(), WORLD_SOLID_VALUE);
     resolved_rooms.clear();
@@ -146,7 +160,10 @@ void LevelDensityGrid::generate_from_graph(const TypedArray<Dictionary> &node_da
     current_carving_zone_id = 0; 
     rng->set_seed(seed);
     
-// 2. Parse Nodes
+    uint64_t t2 = time->get_ticks_usec();
+    uint64_t dt_init = t2 - t1;
+
+    // 2. Parse Nodes
     std::vector<ResolvedRoom> processing_rooms;
     std::map<String, int> id_to_index;
 
@@ -191,7 +208,10 @@ void LevelDensityGrid::generate_from_graph(const TypedArray<Dictionary> &node_da
         id_to_index[r.id] = i;
     }
 
-    // 3. Parse Edges
+    uint64_t t3 = time->get_ticks_usec();
+    uint64_t dt_parse = t3 - t2;
+
+    // 3. Parse Edges & Depth
     std::vector<ResolvedEdge> edges;
     for(int i=0; i < edge_data.size(); ++i) {
         Dictionary edge_dict = edge_data[i];
@@ -242,6 +262,9 @@ void LevelDensityGrid::generate_from_graph(const TypedArray<Dictionary> &node_da
         }
     }
     
+    uint64_t t4 = time->get_ticks_usec();
+    uint64_t dt_edges = t4 - t3;
+
     // 4. Place Rooms
     if (placement_algorithm == ALGO_FORCE_DIRECTED) {
         _place_rooms_force_directed(processing_rooms, edges, node_depths, max_depth, macro_volumes, guide_points);
@@ -250,6 +273,9 @@ void LevelDensityGrid::generate_from_graph(const TypedArray<Dictionary> &node_da
     }
     
     this->resolved_rooms = processing_rooms; 
+    
+    uint64_t t5 = time->get_ticks_usec();
+    uint64_t dt_placement = t5 - t4;
 
     // 5. Carve Generic Rooms (Pass 1)
     for (const auto& room : processing_rooms) {
@@ -261,21 +287,23 @@ void LevelDensityGrid::generate_from_graph(const TypedArray<Dictionary> &node_da
         room_gen.create_rooms_from_data(this, single_room_vec, current_carving_zone_id);
     }
 
+    uint64_t t6 = time->get_ticks_usec();
+    uint64_t dt_carve_rooms = t6 - t5;
+
     // 6. Carve Connections
     path_carver.create_paths_from_edges(this, rng.ptr(), noise_generator, processing_rooms, edges);
+
+    uint64_t t7 = time->get_ticks_usec();
+    uint64_t dt_carve_paths = t7 - t6;
 
     // 7. Stamp Vox Rooms (Pass 2 - Overwrite Paths)
     for (const auto& room : processing_rooms) {
          if (room.vox_path.is_empty()) continue; // Skip Generic rooms
          
-         UtilityFunctions::print("DEBUG: Processing Vox Room [", room.id, "] with path: '", room.vox_path, "'");
-
          const ogt_vox_scene* scene = _load_vox(room.vox_path);
          if (scene) {
-             UtilityFunctions::print("DEBUG: Scene loaded successfully. Instances: ", scene->num_instances);
              _stamp_vox(room, scene);
          } else {
-             UtilityFunctions::printerr("DEBUG: Failed to load scene for room [", room.id, "]");
              // Fallback if loading failed
              std::vector<ResolvedRoom> single_room_vec;
              single_room_vec.push_back(room);
@@ -283,9 +311,26 @@ void LevelDensityGrid::generate_from_graph(const TypedArray<Dictionary> &node_da
          }
     }
 
+    uint64_t t8 = time->get_ticks_usec();
+    uint64_t dt_stamp_vox = t8 - t7;
+
     // 7. Post-Processing
-    if(smooth_terrain) low_pass();
+    uint64_t t8_5 = time->get_ticks_usec();
+    uint64_t dt_smooth = 0;
+    
+    if(smooth_terrain) {
+        UtilityFunctions::print("Smoothing terrain...");
+        low_pass();
+        uint64_t t_smooth_end = time->get_ticks_usec();
+        dt_smooth = t_smooth_end - t8_5;
+    }
+    
+    uint64_t t_normals_start = time->get_ticks_usec();
     _calculate_surface_normals();
+    uint64_t t9 = time->get_ticks_usec();
+    uint64_t dt_normals = t9 - t_normals_start;
+    
+    uint64_t dt_post = dt_smooth + dt_normals;
 
     // 8. Determine Start/End Positions
     for (const auto& room : processing_rooms) {
@@ -331,6 +376,24 @@ void LevelDensityGrid::generate_from_graph(const TypedArray<Dictionary> &node_da
             UtilityFunctions::print("LevelDensityGrid: End Position set to ", calculated_end_position, " (Room: ", room.id, ")");
         }
     }
+
+    uint64_t t10 = time->get_ticks_usec();
+    double total_ms = (t10 - t_start_total) / 1000.0;
+    
+    UtilityFunctions::print("=== Generation From Graph Profiling ===");
+    UtilityFunctions::print("Total Time:      ", total_ms, " ms");
+    UtilityFunctions::print("-----------------------------------");
+    UtilityFunctions::print("Init:            ", dt_init / 1000.0, " ms");
+    UtilityFunctions::print("Parse Nodes:     ", dt_parse / 1000.0, " ms");
+    UtilityFunctions::print("Edges & Depths:  ", dt_edges / 1000.0, " ms");
+    UtilityFunctions::print("Room Placement:  ", dt_placement / 1000.0, " ms");
+    UtilityFunctions::print("Carve Rooms:     ", dt_carve_rooms / 1000.0, " ms");
+    UtilityFunctions::print("Carve Paths:     ", dt_carve_paths / 1000.0, " ms");
+    UtilityFunctions::print("Stamp Vox:       ", dt_stamp_vox / 1000.0, " ms");
+    UtilityFunctions::print("Post Process:    ", dt_post / 1000.0, " ms");
+    UtilityFunctions::print("  - Smoothing:   ", dt_smooth / 1000.0, " ms");
+    UtilityFunctions::print("  - Normals:     ", dt_normals / 1000.0, " ms");
+    UtilityFunctions::print("===================================");
 }
 
 void LevelDensityGrid::_apply_noise() {
@@ -641,108 +704,198 @@ TypedArray<Dictionary> LevelDensityGrid::get_vox_spawns() const {
 
 void LevelDensityGrid::low_pass() {
     int smoothing = smoothing_strength;
-    int gsx = get_grid_size_x();
-    int gsy = get_grid_size_y();
-    int gsz = get_grid_size_z();
-    int required_size = smoothing * 2 + 1;
-    if (gsx < required_size || gsy < required_size || gsz < required_size) {
-        UtilityFunctions::printerr("LevelDensityGrid.low_pass: Grid is too small for the given smoothing strength.");
-        return;
-    }
-    std::vector<float> smoothed_grid;
-    size_t grid_total_size = (size_t)gsx * gsy * gsz;
+    if (smoothing <= 0) return;
+
+    int gsx = grid_size_x;
+    int gsy = grid_size_y;
+    int gsz = grid_size_z;
+    size_t total_size = (size_t)gsx * gsy * gsz;
     
-    smoothed_grid.resize(grid_total_size);
-    for (int z = smoothing; z < gsz - smoothing; ++z) {
-        for (int y = smoothing; y < gsy - smoothing; ++y) {
-            for (int x = smoothing; x < gsx - smoothing; ++x) {
-                Vector3i current_pos(x, y, z);
+    if (gsx == 0 || gsy == 0 || gsz == 0) return;
+
+    // Use raw pointer for speed
+    float* grid_data = world_density_grid.ptrw();
+    
+    // Temporary buffer for separable passes
+    std::vector<float> buffer(total_size);
+    float* temp_data = buffer.data();
+
+    int R = smoothing;
+    // float default_val = WORLD_SOLID_VALUE; // Assuming 1.0f
+
+    // --- Pass 1: Blur X (Source: grid -> Dest: temp) ---
+    // #pragma omp parallel for
+    for (int z = 0; z < gsz; ++z) {
+        for (int y = 0; y < gsy; ++y) {
+            int row_offset = (z * gsy + y) * gsx;
+            for (int x = 0; x < gsx; ++x) {
                 float sum = 0.0f;
                 int count = 0;
-                for (int dz = -smoothing; dz <= smoothing; ++dz) {
-                    for (int dy = -smoothing; dy <= smoothing; ++dy) {
-                        for (int dx = -smoothing; dx <= smoothing; ++dx) {
-                            Vector3i neighbor_pos = current_pos + Vector3i(dx, dy, dz);
-                            sum += get_cell(neighbor_pos, WORLD_SOLID_VALUE);
-                            count++;
-                        }
+                
+                for (int k = -R; k <= R; ++k) {
+                    int nx = x + k;
+                    if (nx >= 0 && nx < gsx) {
+                        sum += grid_data[row_offset + nx];
+                    } else {
+                        sum += WORLD_SOLID_VALUE;
                     }
+                    count++;
                 }
-                float average = (count > 0) ? sum / count : get_cell(current_pos, WORLD_SOLID_VALUE);
-                int index = get_index(current_pos);
-                 if (index != -1) {
-                    smoothed_grid[index] = average;
-                 }
+                
+                temp_data[row_offset + x] = (count > 0) ? sum / count : grid_data[row_offset + x];
             }
         }
     }
-    for (int z = smoothing; z < gsz - smoothing; ++z) {
-        for (int y = smoothing; y < gsy - smoothing; ++y) {
-            for (int x = smoothing; x < gsx - smoothing; ++x) {
-                Vector3i pos(x, y, z);
-                int index = get_index(pos);
-                 if (index != -1) {
-                     set_cell(pos, smoothed_grid[index]);
-                 }
+
+    // --- Pass 2: Blur Y (Source: temp -> Dest: grid) ---
+    // Reuse grid as destination to save memory/copy
+    for (int z = 0; z < gsz; ++z) {
+        int slice_offset = z * gsy * gsx;
+        for (int x = 0; x < gsx; ++x) {
+             for (int y = 0; y < gsy; ++y) {
+                float sum = 0.0f;
+                int count = 0;
+                
+                for (int k = -R; k <= R; ++k) {
+                    int ny = y + k;
+                    if (ny >= 0 && ny < gsy) {
+                        // Accessing temp_data which has X-blurred data
+                        sum += temp_data[slice_offset + ny * gsx + x];
+                    } else {
+                         sum += WORLD_SOLID_VALUE;
+                    }
+                    count++;
+                }
+                
+                grid_data[slice_offset + y * gsx + x] = (count > 0) ? sum / count : temp_data[slice_offset + y * gsx + x];
+             }
+        }
+    }
+
+    // --- Pass 3: Blur Z (Source: grid -> Dest: temp) ---
+    // Grid now has XY-blurred data. Blur Z and store in temp.
+    int stride_z = gsx * gsy;
+    for (int y = 0; y < gsy; ++y) {
+        for (int x = 0; x < gsx; ++x) {
+            int col_offset = y * gsx + x;
+            for (int z = 0; z < gsz; ++z) {
+                float sum = 0.0f;
+                int count = 0;
+
+                for (int k = -R; k <= R; ++k) {
+                    int nz = z + k;
+                    if (nz >= 0 && nz < gsz) {
+                         sum += grid_data[nz * stride_z + col_offset];
+                    } else {
+                         sum += WORLD_SOLID_VALUE;
+                    }
+                    count++;
+                }
+                
+                temp_data[z * stride_z + col_offset] = (count > 0) ? sum / count : grid_data[z * stride_z + col_offset];
             }
         }
     }
+
+    // Final Copy: temp -> grid
+    // memcpy is safe for float array
+    memcpy(grid_data, temp_data, total_size * sizeof(float));
 }
 
 void LevelDensityGrid::_calculate_surface_normals() {
     surface_normals.clear();
-    int gsx = get_grid_size_x();
-    int gsy = get_grid_size_y();
-    int gsz = get_grid_size_z();
-    float surf_thresh = get_surface_threshold();
-
-    UtilityFunctions::print("Calculating surface normals...");
+    int gsx = grid_size_x;
+    int gsy = grid_size_y;
+    int gsz = grid_size_z;
+    float surf_thresh = surface_threshold;
     
-    // (Existing logic preserved)
-    for (int x = 0; x < gsx; ++x) {
-        for (int y = 0; y < gsy; ++y) {
-            for (int z = 0; z < gsz; ++z) {
-                Vector3i current_pos(x, y, z);
-                if (get_cell(current_pos, WORLD_SOLID_VALUE) > surf_thresh) {
-                    bool is_surface = false;
-                    Vector3 gradient;
-                    if (x > 0) {
-                        float left = get_cell(Vector3i(x - 1, y, z), WORLD_SOLID_VALUE);
-                        if (left < surf_thresh) is_surface = true;
-                        gradient.x -= left;
-                    }
-                    if (x < gsx - 1) {
-                        float right = get_cell(Vector3i(x + 1, y, z), WORLD_SOLID_VALUE);
-                        if (right < surf_thresh) is_surface = true;
-                        gradient.x += right;
-                    }
-                    // Check Y neighbors...
-                    if (y > 0) {
-                        float down = get_cell(Vector3i(x, y - 1, z), WORLD_SOLID_VALUE);
-                        if (down < surf_thresh) is_surface = true;
-                        gradient.y -= down;
-                    }
-                    if (y < gsy - 1) {
-                        float up = get_cell(Vector3i(x, y + 1, z), WORLD_SOLID_VALUE);
-                        if (up < surf_thresh) is_surface = true;
-                        gradient.y += up;
-                    }
-                    // Check Z neighbors...
-                    if (z > 0) {
-                        float back = get_cell(Vector3i(x, y, z - 1), WORLD_SOLID_VALUE);
-                        if (back < surf_thresh) is_surface = true;
-                        gradient.z -= back;
-                    }
-                    if (z < gsz - 1) {
-                        float front = get_cell(Vector3i(x, y, z + 1), WORLD_SOLID_VALUE);
-                        if (front < surf_thresh) is_surface = true;
-                        gradient.z += front;
-                    }
+    if (gsx == 0 || gsy == 0 || gsz == 0) return;
 
-                    if (is_surface) {
-                        Vector3 normal = gradient.normalized();
-                        surface_normals[current_pos] = -normal; // Store normal
-                    }
+    UtilityFunctions::print("Calculating surface normals (Optimized)...");
+    
+    // Raw pointer access
+    const float* grid_data = world_density_grid.ptr();
+    
+    int stride_x = 1;
+    int stride_y = gsx;
+    int stride_z = gsx * gsy;
+    // float default_val = WORLD_SOLID_VALUE; // 1.0f
+
+    for (int z = 0; z < gsz; ++z) {
+        for (int y = 0; y < gsy; ++y) {
+            int row_offset = z * stride_z + y * stride_y;
+            for (int x = 0; x < gsx; ++x) {
+                int index = row_offset + x;
+                // Only solid voxels can be surface
+                if (grid_data[index] <= surf_thresh) continue;
+                
+                bool is_surface = false;
+                Vector3 gradient(0, 0, 0);
+
+                // --- Check Neighbors ---
+                // X Neighbors
+                if (x > 0) {
+                    float left = grid_data[index - stride_x];
+                    if (left < surf_thresh) is_surface = true;
+                    gradient.x -= left;
+                } else {
+                    // Boundary is solid
+                    // If boundary is solid (1.0) and we are solid (1.0), difference is 0. 
+                    // But gradient check: center (1.0) - left (1.0) -> gradient -1 ?
+                    // No. Central differencing usually: (right - left) / 2
+                    // Here the code is accumulating differences?
+                    // Original: gradient.x -= left; gradient.x += right;
+                    // If left is solid (1.0), gradient.x -= 1.0. 
+                    // If right is solid (1.0), gradient.x += 1.0. 
+                    // Net x change 0. Correct.
+                    gradient.x -= WORLD_SOLID_VALUE;
+                }
+                
+                if (x < gsx - 1) {
+                    float right = grid_data[index + stride_x];
+                    if (right < surf_thresh) is_surface = true;
+                    gradient.x += right;
+                } else {
+                    gradient.x += WORLD_SOLID_VALUE;
+                }
+
+                // Y Neighbors
+                if (y > 0) {
+                    float down = grid_data[index - stride_y];
+                    if (down < surf_thresh) is_surface = true;
+                    gradient.y -= down;
+                } else {
+                    gradient.y -= WORLD_SOLID_VALUE;
+                }
+                
+                if (y < gsy - 1) {
+                    float up = grid_data[index + stride_y];
+                    if (up < surf_thresh) is_surface = true;
+                    gradient.y += up;
+                } else {
+                    gradient.y += WORLD_SOLID_VALUE;
+                }
+
+                // Z Neighbors
+                if (z > 0) {
+                    float back = grid_data[index - stride_z];
+                    if (back < surf_thresh) is_surface = true;
+                    gradient.z -= back;
+                } else {
+                    gradient.z -= WORLD_SOLID_VALUE;
+                }
+                
+                if (z < gsz - 1) {
+                    float front = grid_data[index + stride_z];
+                    if (front < surf_thresh) is_surface = true;
+                    gradient.z += front;
+                } else {
+                     gradient.z += WORLD_SOLID_VALUE;
+                }
+
+                if (is_surface) {
+                    Vector3 normal = gradient.normalized();
+                    surface_normals[Vector3i(x, y, z)] = -normal; 
                 }
             }
         }

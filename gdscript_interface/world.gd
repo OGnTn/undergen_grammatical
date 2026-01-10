@@ -45,6 +45,9 @@ var face_normals: Dictionary[Vector3, Vector3] = {}
 
 var _zone_visualizer = null
 
+func get_closest_ground_position(position: Vector3) -> Vector3:
+	return density_grid_resource.get_closest_ground_position(position)
+
 func _update_zone_visualizer():
 	if debug_show_zones:
 		if not _zone_visualizer:

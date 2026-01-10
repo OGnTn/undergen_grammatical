@@ -19,6 +19,9 @@ void PathCarver::connect_rooms(DensityGrid* grid, RandomNumberGenerator* rng, Re
         }
         return;
     }
+    
+    Time* time = Time::get_singleton();
+    uint64_t start_time = time->get_ticks_usec();
 
     if (dungeon_mode) {
         UtilityFunctions::print("Connecting ", generated_rooms.size(), " rooms with dungeon-style rectangular corridors.");
@@ -148,6 +151,10 @@ void PathCarver::connect_rooms(DensityGrid* grid, RandomNumberGenerator* rng, Re
         Vector3i end_cell = _find_ground_position(grid, end_room_midpoint);
         out_end = (Vector3(end_cell) + Vector3(0.5f, 0.5f, 0.5f)) * voxel_size;
     }
+    
+    uint64_t end_time = time->get_ticks_usec();
+    double total_ms = (end_time - start_time) / 1000.0;
+    UtilityFunctions::print("PathCarver::connect_rooms Total Time: ", total_ms, " ms");
 }
 
 // Updated signature

@@ -11,7 +11,7 @@ namespace godot {
 class DensityGrid : public Resource {
     GDCLASS(DensityGrid, Resource);
 
-private:
+protected:
     PackedFloat32Array world_density_grid;
     PackedByteArray world_material_grid;
     PackedInt32Array world_zone_grid;

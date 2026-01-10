@@ -13,6 +13,7 @@
 #include <godot_cpp/classes/array_occluder3d.hpp>   // For occluder shape
 #include <godot_cpp/classes/rd_shader_spirv.hpp>
 #include <godot_cpp/classes/rd_uniform.hpp>
+#include <godot_cpp/classes/time.hpp>
 
 namespace godot {
 
@@ -96,6 +97,10 @@ void MCChunk::generate_mesh_from_density_grid() {
         return;
     }
 
+    Time* time = Time::get_singleton();
+    uint64_t start_total = time->get_ticks_usec();
+    uint64_t t1 = start_total;
+
     // --- STEP 1: Generate Unified Geometry (The "Master" Mesh) ---
     // We collect ALL triangles first, regardless of material, so we can smooth the normals.
     
@@ -104,8 +109,6 @@ void MCChunk::generate_mesh_from_density_grid() {
     std::vector<int> master_triangle_materials; // Stores the material ID for each triangle
     
     // Vertex Cache for the master mesh (Edge Key -> Master Index)
-    // Using std::map for string keys is slower but easiest to drop in here. 
-    // Optimization: You can use a dedicated hash map or spatial hash later.
     std::map<String, int> master_vertex_cache;
 
     float surface = density_grid->get_surface_threshold();
@@ -191,6 +194,9 @@ void MCChunk::generate_mesh_from_density_grid() {
             }
         }
     }
+    
+    uint64_t t2 = time->get_ticks_usec();
+    uint64_t dt_march = t2 - t1;
 
     if (master_vertices.is_empty()) return;
 
@@ -221,7 +227,9 @@ void MCChunk::generate_mesh_from_density_grid() {
     for(int i=0; i<master_normals.size(); ++i) {
         master_normals[i] = master_normals[i].normalized();
     }
-
+    
+    uint64_t t3 = time->get_ticks_usec();
+    uint64_t dt_normals = t3 - t2;
 
     // --- STEP 3: Split into Material Surfaces ---
     std::map<int, SurfaceBuilder> surfaces;
@@ -253,6 +261,9 @@ void MCChunk::generate_mesh_from_density_grid() {
             }
         }
     }
+    
+    uint64_t t4 = time->get_ticks_usec();
+    uint64_t dt_split = t4 - t3;
 
     // --- STEP 4: Build Godot Mesh ---
     Ref<ArrayMesh> array_mesh = get_mesh();
@@ -306,10 +317,24 @@ void MCChunk::generate_mesh_from_density_grid() {
             col_offset += builder.vertices.size();
         }
     }
+    
+    uint64_t t5 = time->get_ticks_usec();
+    uint64_t dt_mesh = t5 - t4;
 
     // --- STEP 5: Generate Physics/Occlusion ---
     if (generate_collision) _generate_collision(total_collision_vertices, total_collision_indices);
     if (generate_occluder) _generate_occluder(total_collision_vertices, total_collision_indices);
+    
+    uint64_t t6 = time->get_ticks_usec();
+    uint64_t dt_collision = t6 - t5;
+    
+    double total_ms = (t6 - start_total) / 1000.0;
+    
+    // Only print if it took significant time to avoid spam
+    if (total_ms > 1.0) {
+        UtilityFunctions::print("MCChunk::generate_mesh [", get_name(), "] Total: ", total_ms, " ms");
+        UtilityFunctions::print("  March: ", dt_march/1000.0, " ms, Normals: ", dt_normals/1000.0, " ms, Split: ", dt_split/1000.0, " ms, Mesh: ", dt_mesh/1000.0, " ms, Col: ", dt_collision/1000.0, " ms");
+    }
 }
 
 
