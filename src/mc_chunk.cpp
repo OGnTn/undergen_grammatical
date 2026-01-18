@@ -331,10 +331,10 @@ void MCChunk::generate_mesh_from_density_grid() {
     double total_ms = (t6 - start_total) / 1000.0;
     
     // Only print if it took significant time to avoid spam
-    if (total_ms > 1.0) {
-        UtilityFunctions::print("MCChunk::generate_mesh [", get_name(), "] Total: ", total_ms, " ms");
-        UtilityFunctions::print("  March: ", dt_march/1000.0, " ms, Normals: ", dt_normals/1000.0, " ms, Split: ", dt_split/1000.0, " ms, Mesh: ", dt_mesh/1000.0, " ms, Col: ", dt_collision/1000.0, " ms");
-    }
+    //if (total_ms > 1.0) {
+    //    UtilityFunctions::print("MCChunk::generate_mesh [", get_name(), "] Total: ", total_ms, " ms");
+    //    UtilityFunctions::print("  March: ", dt_march/1000.0, " ms, Normals: ", dt_normals/1000.0, " ms, Split: ", dt_split/1000.0, " ms, Mesh: ", dt_mesh/1000.0, " ms, Col: ", dt_collision/1000.0, " ms");
+    //}
 }
 
 
