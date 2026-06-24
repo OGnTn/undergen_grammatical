@@ -24,9 +24,10 @@ void UnderGenPointFilterNode::_bind_methods() {
 
     BIND_ENUM_CONSTANT(ZONE_MATCH_EXACT);
     BIND_ENUM_CONSTANT(ZONE_MATCH_PREFIX);
+    BIND_ENUM_CONSTANT(ZONE_MATCH_EXCLUDE);
 
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "required_zone_name", PROPERTY_HINT_NONE, "Comma-separated zone names"), "set_required_zone_name", "get_required_zone_name");
-    ADD_PROPERTY(PropertyInfo(Variant::INT, "zone_match_mode", PROPERTY_HINT_ENUM, "Exact,Prefix"), "set_zone_match_mode", "get_zone_match_mode");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "zone_match_mode", PROPERTY_HINT_ENUM, "Exact,Prefix,Exclude"), "set_zone_match_mode", "get_zone_match_mode");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "min_slope"), "set_min_slope", "get_min_slope");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "max_slope"), "set_max_slope", "get_max_slope");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "min_density"), "set_min_density", "get_min_density");
@@ -51,20 +52,27 @@ bool UnderGenPointFilterNode::_zone_matches(const String &point_zone) const {
 
     // Split comma-separated filter list
     PackedStringArray parts = required_zone_name.split(",");
+    bool invert = (zone_match_mode == ZONE_MATCH_EXCLUDE);
+
     for (int i = 0; i < parts.size(); ++i) {
         String filter = parts[i].strip_edges();
         if (filter.is_empty()) continue;
 
+        bool hit = false;
         switch (zone_match_mode) {
             case ZONE_MATCH_EXACT:
-                if (point_zone == filter) return true;
+            case ZONE_MATCH_EXCLUDE:
+                hit = (point_zone == filter);
                 break;
             case ZONE_MATCH_PREFIX:
-                if (point_zone.begins_with(filter)) return true;
+                hit = point_zone.begins_with(filter);
                 break;
         }
+
+        if (hit) return !invert;  // include mode: found → pass; exclude mode: found → reject
     }
-    return false;
+
+    return invert;  // include mode: no match → reject; exclude mode: no match → pass
 }
 
 void UnderGenPointFilterNode::_execute(const Dictionary &inputs, Dictionary &outputs) {

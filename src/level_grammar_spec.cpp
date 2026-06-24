@@ -61,6 +61,30 @@ Vector3i LevelGrammarRoomTypeSpec::get_max_size() const { return max_size; }
 void LevelGrammarRoomTypeSpec::set_vox_path(const String &p_path) { vox_path = p_path; }
 String LevelGrammarRoomTypeSpec::get_vox_path() const { return vox_path; }
 
+// ── Helper: safely extract Vector3i from a Variant ───────────────────────
+// JSON arrays like [4,3,4] come through as Godot Array, not Vector3i.
+static Vector3i _variant_to_vector3i(const Variant &v, const Vector3i &fallback = Vector3i()) {
+    if (v.get_type() == Variant::VECTOR3I) {
+        return Vector3i(v);
+    }
+    if (v.get_type() == Variant::VECTOR3) {
+        Vector3 fv = v;
+        return Vector3i((int)fv.x, (int)fv.y, (int)fv.z);
+    }
+    if (v.get_type() == Variant::ARRAY) {
+        Array arr = v;
+        if (arr.size() >= 3) {
+            return Vector3i(
+                (int)(double)(arr[0]),
+                (int)(double)(arr[1]),
+                (int)(double)(arr[2])
+            );
+        }
+    }
+    UtilityFunctions::printerr("LevelGrammarSpec: Cannot convert Variant (type=", v.get_type(), ") to Vector3i, using fallback ", fallback);
+    return fallback;
+}
+
 // ── Serialization ─────────────────────────────────────────────────────────
 
 Dictionary LevelGrammarRoomTypeSpec::to_dictionary() const {
@@ -79,8 +103,8 @@ void LevelGrammarRoomTypeSpec::from_dictionary(const Dictionary &d) {
     if (d.has("symbol"))   set_symbol(d["symbol"]);
     if (d.has("color"))    set_color(d["color"]);
     if (d.has("weight"))   set_weight(d["weight"]);
-    if (d.has("min_size")) set_min_size(d["min_size"]);
-    if (d.has("max_size")) set_max_size(d["max_size"]);
+    if (d.has("min_size")) set_min_size(_variant_to_vector3i(d["min_size"], Vector3i(5, 3, 5)));
+    if (d.has("max_size")) set_max_size(_variant_to_vector3i(d["max_size"], Vector3i(10, 6, 10)));
     if (d.has("vox_path")) set_vox_path(d["vox_path"]);
 }
 

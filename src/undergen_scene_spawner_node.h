@@ -9,16 +9,14 @@
 
 namespace godot {
 
-// Terminal node: spawns PackedScene instances at positions given by a PointSet.
-// Respects density as a spawn probability (0=never, 1=always).
-// Supports zone→scene mapping: if a point's zone_name matches a key in zone_scene_map,
-// that scene is used instead of scene_to_spawn.
+// Terminal node: spawns ONE PackedScene at every point in the input PointSet.
+// For per-zone spawning, use UnderGenPointFilterNode upstream to route zones
+// into separate Spawner instances, each configured with its own scene.
 class UnderGenSceneSpawnerNode : public UnderGenNode {
     GDCLASS(UnderGenSceneSpawnerNode, UnderGenNode);
 
 private:
-    Ref<PackedScene> scene_to_spawn; // Default / fallback scene
-    Dictionary zone_scene_map;       // { "zone_name": PackedScene, ... }
+    Ref<PackedScene> scene_to_spawn;
     float spawn_probability = 1.0f;
     bool random_y_rotation = true;
     int64_t random_seed = 0;
@@ -31,10 +29,8 @@ public:
     UnderGenSceneSpawnerNode();
     virtual ~UnderGenSceneSpawnerNode();
 
-    void set_scene_to_spawn(const Ref<PackedScene> &p_scene);
+    void set_scene_to_spawn(const Variant &p_scene);
     Ref<PackedScene> get_scene_to_spawn() const;
-    void set_zone_scene_map(const Dictionary &p_map);
-    Dictionary get_zone_scene_map() const;
     void set_spawn_probability(float p_prob);
     float get_spawn_probability() const;
     void set_random_y_rotation(bool p_enabled);

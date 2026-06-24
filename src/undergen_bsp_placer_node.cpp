@@ -189,12 +189,21 @@ void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outpu
     // Stamp Generic Rooms (Pass 1 - Non-Vox rooms)
     RoomGenerator room_gen;
     int current_zone_id = 0;
+    int rooms_skipped_vox = 0;
+    int rooms_stamped = 0;
     for (const auto& room : processing_rooms) {
-        if (!room.vox_path.is_empty()) continue; // Skip vox rooms
+        if (!room.vox_path.is_empty()) {
+            rooms_skipped_vox++;
+            UtilityFunctions::print("UnderGenBSPPlacerNode: Skipping vox room \"", room.type, "\" (", room.id, ") — has vox_path: ", room.vox_path);
+            continue;
+        }
         std::vector<ResolvedRoom> single_room_vec;
         single_room_vec.push_back(room);
         room_gen.create_rooms_from_data(grid.ptr(), single_room_vec, current_zone_id);
+        rooms_stamped++;
+        UtilityFunctions::print("UnderGenBSPPlacerNode: Stamped room \"", room.type, "\" (", room.id, ") at ", room.position, " size ", room.size);
     }
+    UtilityFunctions::print("UnderGenBSPPlacerNode: Room summary — ", rooms_stamped, " stamped, ", rooms_skipped_vox, " skipped (vox), ", (int)processing_rooms.size(), " total");
 
     // Export Placed Rooms list back as Array of Dictionaries
     Array placed_rooms_array;

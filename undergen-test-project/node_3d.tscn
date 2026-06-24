@@ -1,0 +1,27 @@
+[gd_scene format=3 uid="uid://bh0yy0bi77oi0"]
+
+[ext_resource type="UnderGenPipeline" uid="uid://bjyofkjy8bsbf" path="res://new_under_gen_pipeline.tres" id="1_noarx"]
+[ext_resource type="LevelGrammarSpec" uid="uid://i4ph2gvny8hh" path="res://json/dungeon.grammar.json" id="2_noarx"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_dr77u"]
+
+[sub_resource type="Sky" id="Sky_mduoy"]
+sky_material = SubResource("ProceduralSkyMaterial_dr77u")
+
+[sub_resource type="Environment" id="Environment_ke0wg"]
+background_mode = 2
+sky = SubResource("Sky_mduoy")
+
+[node name="Node3D" type="Node3D" unique_id=1486053952]
+
+[node name="UnderGenWorld3D" type="UnderGenWorld3D" parent="." unique_id=1670540097]
+pipeline = ExtResource("1_noarx")
+grammar = ExtResource("2_noarx")
+voxel_size = 4.0
+generate_on_ready = true
+debug_show_zone_labels = true
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1381878559]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1879477911]
+environment = SubResource("Environment_ke0wg")

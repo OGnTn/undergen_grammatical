@@ -1,0 +1,202 @@
+[gd_resource type="UnderGenPipeline" format=3 uid="uid://bjyofkjy8bsbf"]
+
+[ext_resource type="PackedScene" uid="uid://b6v1eic5p3iks" path="res://sphere.tscn" id="1_o2k7n"]
+[ext_resource type="PackedScene" uid="uid://btlgptf4qww7g" path="res://box.tscn" id="2_i5ao7"]
+
+[sub_resource type="UnderGenGrammarNode" id="UnderGenGrammarNode_mj2rg"]
+grammar_resource_path = "res://json/dungeon.grammar.json"
+iterations = 5
+max_nodes = 200
+resource_name = "Grammar_Expander"
+
+[sub_resource type="UnderGenBSPPlacerNode" id="UnderGenBSPPlacerNode_6sbpv"]
+grid_size_x = 96
+grid_size_y = 32
+grid_size_z = 96
+resource_name = "Room_Placer"
+
+[sub_resource type="UnderGenBezierCarverNode" id="UnderGenBezierCarverNode_rgam1"]
+path_brush_min_radius = 5
+path_brush_max_radius = 9
+path_segments = 2
+path_bend_factor = 0.45
+path_wobble_magnitude = 0.35
+path_wobble_frequency = 0.18
+cave_ruggedness = 1.1
+cave_floor_ruggedness = 0.25
+cave_ceiling_ruggedness = 0.4
+cave_width_noise = 0.15
+floor_flattening = 0.55
+overhang_openness = 0.3
+resource_name = "Organic_Carver"
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_gf838"]
+seed = 42
+frequency = 0.025
+
+[sub_resource type="UnderGenNoiseNode" id="UnderGenNoiseNode_5xpwa"]
+noise_scale = 35.0
+noise_intensity = 0.3
+noise_frequency = 0.025
+noise_seed = 42
+noise_generator = SubResource("FastNoiseLite_gf838")
+resource_name = "Noise_Detail"
+
+[sub_resource type="UnderGenSmoothNode" id="UnderGenSmoothNode_edri7"]
+resource_name = "Grid_Smooth"
+
+[sub_resource type="ZoneMaterialEntry" id="ZoneMaterialEntry_uyh7w"]
+zone_name = "encounterroom"
+material_id = 1
+
+[sub_resource type="ZoneMaterialEntry" id="ZoneMaterialEntry_j746t"]
+zone_name = "hubroom"
+
+[sub_resource type="UnderGenMaterialStamperNode" id="UnderGenMaterialStamperNode_ltuka"]
+zone_material_map = Array[ZoneMaterialEntry]([SubResource("ZoneMaterialEntry_uyh7w"), SubResource("ZoneMaterialEntry_j746t")])
+resource_name = "Zone_Materials"
+
+[sub_resource type="UnderGenSurfaceSamplerNode" id="UnderGenSurfaceSamplerNode_wjfwm"]
+resource_name = "Surface_Floors"
+
+[sub_resource type="UnderGenPointFilterNode" id="UnderGenPointFilterNode_juj5y"]
+required_zone_name = "bossarena"
+max_slope = 0.7
+min_density = 0.2
+min_spacing = 3.0
+resource_name = "Spawn_Filter_Boss"
+
+[sub_resource type="UnderGenSceneSpawnerNode" id="UnderGenSceneSpawnerNode_3dlyt"]
+scene_to_spawn = ExtResource("1_o2k7n")
+spawn_probability = 0.9
+random_seed = 12345
+resource_name = "Spawner_Boss"
+
+[sub_resource type="UnderGenPointFilterNode" id="UnderGenPointFilterNode_n37db"]
+required_zone_name = "treasureroom"
+max_slope = 0.7
+min_density = 0.2
+min_spacing = 3.0
+resource_name = "Spawn_Filter_Treasure"
+
+[sub_resource type="UnderGenSceneSpawnerNode" id="UnderGenSceneSpawnerNode_dg4yq"]
+scene_to_spawn = ExtResource("2_i5ao7")
+spawn_probability = 0.9
+random_seed = 12346
+resource_name = "Spawner_Treasure"
+
+[sub_resource type="UnderGenPointFilterNode" id="UnderGenPointFilterNode_pgif2"]
+required_zone_name = "keyvault"
+max_slope = 0.7
+min_density = 0.2
+min_spacing = 3.0
+resource_name = "Spawn_Filter_KeyVault"
+
+[sub_resource type="UnderGenSceneSpawnerNode" id="UnderGenSceneSpawnerNode_iscjd"]
+scene_to_spawn = ExtResource("1_o2k7n")
+spawn_probability = 0.9
+random_seed = 12347
+resource_name = "Spawner_KeyVault"
+
+[sub_resource type="UnderGenPointFilterNode" id="UnderGenPointFilterNode_83fxs"]
+required_zone_name = "bossarena,treasureroom,keyvault"
+zone_match_mode = 2
+max_slope = 0.7
+min_density = 0.2
+min_spacing = 2.0
+resource_name = "Spawn_Filter_Default"
+
+[sub_resource type="UnderGenSceneSpawnerNode" id="UnderGenSceneSpawnerNode_gyiog"]
+scene_to_spawn = ExtResource("2_i5ao7")
+spawn_probability = 0.75
+random_seed = 12348
+resource_name = "Spawner_Default"
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_o2k7n"]
+albedo_color = Color(0.38595447, 0.47819483, 0.34101325, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_i5ao7"]
+albedo_color = Color(0.7075198, 0.27579096, 0.4456349, 1)
+
+[sub_resource type="UnderGenMesherNode" id="UnderGenMesherNode_8hqud"]
+terrain_materials = Array[Material]([SubResource("StandardMaterial3D_o2k7n"), SubResource("StandardMaterial3D_i5ao7")])
+resource_name = "Terrain_Mesher"
+
+[resource]
+nodes = [SubResource("UnderGenGrammarNode_mj2rg"), SubResource("UnderGenBSPPlacerNode_6sbpv"), SubResource("UnderGenBezierCarverNode_rgam1"), SubResource("UnderGenNoiseNode_5xpwa"), SubResource("UnderGenSmoothNode_edri7"), SubResource("UnderGenMaterialStamperNode_ltuka"), SubResource("UnderGenSurfaceSamplerNode_wjfwm"), SubResource("UnderGenPointFilterNode_juj5y"), SubResource("UnderGenSceneSpawnerNode_3dlyt"), SubResource("UnderGenPointFilterNode_n37db"), SubResource("UnderGenSceneSpawnerNode_dg4yq"), SubResource("UnderGenPointFilterNode_pgif2"), SubResource("UnderGenSceneSpawnerNode_iscjd"), SubResource("UnderGenPointFilterNode_83fxs"), SubResource("UnderGenSceneSpawnerNode_gyiog"), SubResource("UnderGenMesherNode_8hqud")]
+connections = [{
+"from_node": "Grammar_Expander",
+"from_port": 0.0,
+"to_node": "Room_Placer",
+"to_port": 1.0
+}, {
+"from_node": "Room_Placer",
+"from_port": 0.0,
+"to_node": "Organic_Carver",
+"to_port": 0.0
+}, {
+"from_node": "Organic_Carver",
+"from_port": 0.0,
+"to_node": "Noise_Detail",
+"to_port": 0.0
+}, {
+"from_node": "Noise_Detail",
+"from_port": 0.0,
+"to_node": "Grid_Smooth",
+"to_port": 0.0
+}, {
+"from_node": "Grid_Smooth",
+"from_port": 0.0,
+"to_node": "Zone_Materials",
+"to_port": 0.0
+}, {
+"from_node": "Zone_Materials",
+"from_port": 0.0,
+"to_node": "Surface_Floors",
+"to_port": 0.0
+}, {
+"from_node": "Zone_Materials",
+"from_port": 0.0,
+"to_node": "Terrain_Mesher",
+"to_port": 0.0
+}, {
+"from_node": "Surface_Floors",
+"from_port": 1.0,
+"to_node": "Spawn_Filter_Boss",
+"to_port": 0.0
+}, {
+"from_node": "Spawn_Filter_Boss",
+"from_port": 0.0,
+"to_node": "Spawner_Boss",
+"to_port": 0.0
+}, {
+"from_node": "Surface_Floors",
+"from_port": 1.0,
+"to_node": "Spawn_Filter_Treasure",
+"to_port": 0.0
+}, {
+"from_node": "Spawn_Filter_Treasure",
+"from_port": 0.0,
+"to_node": "Spawner_Treasure",
+"to_port": 0.0
+}, {
+"from_node": "Surface_Floors",
+"from_port": 1.0,
+"to_node": "Spawn_Filter_KeyVault",
+"to_port": 0.0
+}, {
+"from_node": "Spawn_Filter_KeyVault",
+"from_port": 0.0,
+"to_node": "Spawner_KeyVault",
+"to_port": 0.0
+}, {
+"from_node": "Surface_Floors",
+"from_port": 1.0,
+"to_node": "Spawn_Filter_Default",
+"to_port": 0.0
+}, {
+"from_node": "Spawn_Filter_Default",
+"from_port": 0.0,
+"to_node": "Spawner_Default",
+"to_port": 0.0
+}]

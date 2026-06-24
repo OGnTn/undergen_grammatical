@@ -1,0 +1,14 @@
+[remap]
+
+importer="undergen.grammar_json"
+type="LevelGrammarSpec"
+uid="uid://i4ph2gvny8hh"
+path="res://.godot/imported/dungeon.grammar.json-9a154f6c3235ac65d30274ec8aa2e6df.tres"
+
+[deps]
+
+source_file="res://json/dungeon.grammar.json"
+dest_files=["res://.godot/imported/dungeon.grammar.json-9a154f6c3235ac65d30274ec8aa2e6df.tres"]
+
+[params]
+

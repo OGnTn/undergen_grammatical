@@ -2,7 +2,9 @@
 #include "undergen_mesher_node.h"
 #include "undergen_scene_spawner_node.h"
 #include "undergen_grammar_node.h"
+#include "density_grid.h"
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/classes/label3d.hpp>
 
 namespace godot {
 
@@ -36,6 +38,18 @@ void UnderGenWorld3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_generate_on_ready", "enabled"), &UnderGenWorld3D::set_generate_on_ready);
     ClassDB::bind_method(D_METHOD("get_generate_on_ready"), &UnderGenWorld3D::get_generate_on_ready);
 
+    // Debug Visualization
+    ClassDB::bind_method(D_METHOD("set_debug_show_zone_labels", "enabled"), &UnderGenWorld3D::set_debug_show_zone_labels);
+    ClassDB::bind_method(D_METHOD("get_debug_show_zone_labels"), &UnderGenWorld3D::get_debug_show_zone_labels);
+    ClassDB::bind_method(D_METHOD("set_debug_zone_label_font_size", "size"), &UnderGenWorld3D::set_debug_zone_label_font_size);
+    ClassDB::bind_method(D_METHOD("get_debug_zone_label_font_size"), &UnderGenWorld3D::get_debug_zone_label_font_size);
+    ClassDB::bind_method(D_METHOD("set_debug_zone_label_color", "color"), &UnderGenWorld3D::set_debug_zone_label_color);
+    ClassDB::bind_method(D_METHOD("get_debug_zone_label_color"), &UnderGenWorld3D::get_debug_zone_label_color);
+
+    // Manual debug label control (callable from GDScript)
+    ClassDB::bind_method(D_METHOD("spawn_debug_zone_labels", "context"), &UnderGenWorld3D::_spawn_debug_zone_labels);
+    ClassDB::bind_method(D_METHOD("clear_debug_labels"), &UnderGenWorld3D::_clear_debug_labels);
+
     ClassDB::bind_method(D_METHOD("generate"), &UnderGenWorld3D::generate);
     ClassDB::bind_method(D_METHOD("cancel_generation"), &UnderGenWorld3D::cancel_generation);
     ClassDB::bind_method(D_METHOD("get_is_generating"), &UnderGenWorld3D::get_is_generating);
@@ -52,6 +66,11 @@ void UnderGenWorld3D::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::INT, "seed"), "set_generation_seed", "get_generation_seed");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "voxel_size"), "set_voxel_size", "get_voxel_size");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_on_ready"), "set_generate_on_ready", "get_generate_on_ready");
+
+    // Debug Visualization
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug_show_zone_labels"), "set_debug_show_zone_labels", "get_debug_show_zone_labels");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "debug_zone_label_font_size", PROPERTY_HINT_RANGE, "8,128,1"), "set_debug_zone_label_font_size", "get_debug_zone_label_font_size");
+    ADD_PROPERTY(PropertyInfo(Variant::COLOR, "debug_zone_label_color"), "set_debug_zone_label_color", "get_debug_zone_label_color");
 
     // Signals
     ADD_SIGNAL(MethodInfo("generation_started"));
@@ -99,6 +118,32 @@ void UnderGenWorld3D::set_generate_on_ready(bool p_enabled) {
 
 bool UnderGenWorld3D::get_generate_on_ready() const {
     return generate_on_ready;
+}
+
+// ── Debug Visualization ────────────────────────────────────────────────
+
+void UnderGenWorld3D::set_debug_show_zone_labels(bool p_enabled) {
+    debug_show_zone_labels = p_enabled;
+}
+
+bool UnderGenWorld3D::get_debug_show_zone_labels() const {
+    return debug_show_zone_labels;
+}
+
+void UnderGenWorld3D::set_debug_zone_label_font_size(int p_size) {
+    debug_zone_label_font_size = (p_size < 8) ? 8 : ((p_size > 128) ? 128 : p_size);
+}
+
+int UnderGenWorld3D::get_debug_zone_label_font_size() const {
+    return debug_zone_label_font_size;
+}
+
+void UnderGenWorld3D::set_debug_zone_label_color(const Color &p_color) {
+    debug_zone_label_color = p_color;
+}
+
+Color UnderGenWorld3D::get_debug_zone_label_color() const {
+    return debug_zone_label_color;
 }
 
 void UnderGenWorld3D::generate() {
@@ -193,6 +238,16 @@ void UnderGenWorld3D::_on_layout_completed(const Dictionary &outputs) {
             UnderGenMesherNode* mesher = Object::cast_to<UnderGenMesherNode>(node.ptr());
             if (mesher) {
                 Dictionary inputs = pipeline->get_node_inputs(mesher->get_name());
+                
+                // Capture context and the mesher's own voxel_size for debug labels.
+                // (The world node's voxel_size may differ from the mesher's,
+                //  and the mesher places chunks using its own voxel_size.)
+                Dictionary context = inputs.get(0, Dictionary());
+                if (!context.is_empty()) {
+                    _last_context = context;
+                    _last_voxel_size = mesher->get_voxel_size();
+                }
+
                 Dictionary node_outputs;
                 mesher->execute_with_parent(inputs, node_outputs, this);
             }
@@ -204,6 +259,12 @@ void UnderGenWorld3D::_on_layout_completed(const Dictionary &outputs) {
 
 void UnderGenWorld3D::_on_meshing_completed(const Dictionary &outputs) {
     emit_signal("meshing_completed");
+
+    // Spawn debug zone labels if enabled
+    if (debug_show_zone_labels) {
+        _spawn_debug_zone_labels(_last_context);
+        _last_context.clear(); // free memory
+    }
     
     // Execute all Spawner nodes on the main thread
     if (pipeline.is_valid()) {
@@ -242,6 +303,112 @@ void UnderGenWorld3D::_on_generation_failed(const String &reason) {
         gen_thread.detach();
     }
     emit_signal("generation_failed", reason);
+}
+
+// ── Debug Zone Labels ──────────────────────────────────────────────────
+
+void UnderGenWorld3D::_clear_debug_labels() {
+    // Remove any existing debug label nodes (prefixed with "DebugZone_")
+    for (int i = get_child_count() - 1; i >= 0; --i) {
+        Node *child = get_child(i);
+        if (child && child->get_name().begins_with("DebugZone_")) {
+            child->queue_free();
+        }
+    }
+}
+
+void UnderGenWorld3D::_spawn_debug_zone_labels(const Dictionary &context) {
+    if (context.is_empty()) {
+        UtilityFunctions::printerr("UnderGenWorld3D: Cannot spawn zone labels — context is empty.");
+        return;
+    }
+
+    _clear_debug_labels();
+
+    Ref<DensityGrid> grid = context.get("grid", Ref<DensityGrid>());
+    if (grid.is_null()) {
+        UtilityFunctions::printerr("UnderGenWorld3D: Cannot spawn zone labels — no grid in context.");
+        return;
+    }
+
+    Array rooms = context.get("rooms", Array());
+    Array edges = context.get("edges", Array());
+    float vs = _last_voxel_size;
+    int label_idx = 0;
+
+    // Helper lambda: create a Label3D with standard settings
+    auto make_label = [&](const String &name_suffix, const String &text,
+                          const Vector3 &world_pos, const Color &color) -> Label3D* {
+        Label3D *lbl = memnew(Label3D);
+        lbl->set_name("DebugZone_" + String::num_int64(label_idx++) + "_" + name_suffix);
+        lbl->set_text(text);
+        lbl->set_font_size(debug_zone_label_font_size);
+        lbl->set_billboard_mode(BaseMaterial3D::BILLBOARD_ENABLED);
+        lbl->set_outline_size(2);
+        lbl->set_outline_modulate(Color(0.0f, 0.0f, 0.0f, 1.0f));
+        lbl->set_modulate(color);
+        lbl->set_position(world_pos);
+        lbl->set_draw_flag(Label3D::FLAG_DISABLE_DEPTH_TEST, true);
+        lbl->set_render_priority(127);
+        return lbl;
+    };
+
+    // ── Room labels ─────────────────────────────────────────────────────
+    // Build id→center lookup for edge midpoint calculation
+    std::map<String, Vector3> room_centers;
+    for (int i = 0; i < rooms.size(); ++i) {
+        Dictionary room = rooms[i];
+        if (room.is_empty()) continue;
+        String rid = room.get("id", "");
+        Vector3 center = room.get("center", Vector3());
+        if (!rid.is_empty()) room_centers[rid] = center;
+    }
+
+    for (int i = 0; i < rooms.size(); ++i) {
+        Dictionary room = rooms[i];
+        if (room.is_empty()) continue;
+
+        String room_type = room.get("type", "unknown");
+        Vector3 center = room.get("center", Vector3());
+        String room_id = room.get("id", "");
+
+        String display_text = room_type;
+        if (!room_id.is_empty()) display_text = room_type + "\n(" + room_id + ")";
+
+        Vector3 world_center = center * vs + Vector3(0.0f, vs * 0.5f, 0.0f);
+        Label3D *label = make_label(room_type, display_text, world_center, debug_zone_label_color);
+        add_child(label);
+    }
+
+    // ── Edge (corridor) labels ──────────────────────────────────────────
+    // Use a distinct cyan-green color for edges so they stand out from rooms
+    Color edge_color = Color(0.2f, 1.0f, 0.8f, 1.0f);
+    for (int i = 0; i < edges.size(); ++i) {
+        Dictionary edge = edges[i];
+        if (edge.is_empty()) continue;
+
+        String edge_type = edge.get("type", "corridor");
+        String from_id = edge.get("from", "");
+        String to_id   = edge.get("to", "");
+
+        // Find the midpoint between the two connected rooms
+        auto fit = room_centers.find(from_id);
+        auto tit = room_centers.find(to_id);
+        if (fit == room_centers.end() || tit == room_centers.end()) continue;
+
+        Vector3 midpoint = (fit->second + tit->second) * 0.5f;
+        Vector3 world_pos = midpoint * vs + Vector3(0.0f, vs * 0.5f, 0.0f);
+
+        String display = edge_type;
+        if (from_id != to_id) display = edge_type + "\n" + from_id + " → " + to_id;
+
+        Label3D *label = make_label("edge_" + edge_type, display, world_pos, edge_color);
+        add_child(label);
+    }
+
+    int edge_count = (int)edges.size();
+    int total = (int)rooms.size() + edge_count;
+    UtilityFunctions::print("UnderGenWorld3D: Spawned ", rooms.size(), " room labels + ", edge_count, " edge labels (", total, " total).");
 }
 
 } // namespace godot

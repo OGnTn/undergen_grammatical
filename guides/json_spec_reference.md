@@ -485,7 +485,7 @@ Every pipeline node has a set of **typed ports** and **configurable properties**
 ### 3.11 UnderGenPointFilterNode
 
 **Editor Label**: Point Filter
-**Role**: Filters a PointSet by zone, slope, density threshold, and minimum spacing.
+**Role**: Filters a PointSet by zone, slope, density threshold, and minimum spacing. Used upstream of `UnderGenSceneSpawnerNode` to route points by zone into separate spawners.
 
 | Port | Direction | Type | Description |
 |:-----|:----------|:-----|:------------|
@@ -494,8 +494,8 @@ Every pipeline node has a set of **typed ports** and **configurable properties**
 
 | Property | Type | Default | Range | Description |
 |:---------|:-----|:--------|:------|:------------|
-| `required_zone_name` | `string` | `""` | Comma-separated | Keep only points in these zones. Empty = all. |
-| `zone_match_mode` | `int` (enum) | `0` | `0=Exact, 1=Prefix` | How to match zone names. |
+| `required_zone_name` | `string` | `""` | Comma-separated | Keep or exclude points in these zones (see `zone_match_mode`). Empty = all. |
+| `zone_match_mode` | `int` (enum) | `0` | `0=Exact, 1=Prefix, 2=Exclude` | How to match zone names. `Exact`: full name match. `Prefix`: zone name starts with filter. `Exclude`: keep points whose zone matches **none** of the names. |
 | `min_slope` | `float` | `0` | `0..1` | Minimum slope (0=flat, 1=vertical). |
 | `max_slope` | `float` | `1` | `0..1` | Maximum slope. |
 | `min_density` | `float` | `0` | — | Points with `density` below this are discarded. |
@@ -528,17 +528,18 @@ Every pipeline node has a set of **typed ports** and **configurable properties**
 ### 3.13 UnderGenSceneSpawnerNode
 
 **Editor Label**: Scene Spawner
-**Role**: **Terminal node.** Instantiates `PackedScene` objects at `PointSet` positions. Requires `UnderGenWorld3D` as parent.
+**Role**: **Terminal node.** Instantiates a **single** `PackedScene` at every point in the input `PointSet`. Requires `UnderGenWorld3D` as parent.
+
+> **Per-zone spawning**: To spawn different scenes per zone, place `UnderGenPointFilterNode` instances upstream — each filtering for a specific zone — and wire each to its own spawner. Use `zone_match_mode: 2` (Exclude) on a final filter to catch all remaining zones.
 
 | Port | Direction | Type | Description |
 |:-----|:----------|:-----|:------------|
 | 0 | **in** | `3` Point Set | Points to spawn at. |
-| *(no output)* | | | End of spawning pipeline. |
+| 0 | **out** | `3` Point Set | Pass-through for chaining. |
 
 | Property | Type | Default | Range | Description |
 |:---------|:-----|:--------|:------|:------------|
-| `scene_to_spawn` | `PackedScene` | `null` | — | Default/fallback scene to instantiate at each point. |
-| `zone_scene_map` | `Dict<string → PackedScene>` | `{}` | — | Zone-aware scene override. Key = zone name, Value = scene path. e.g. `{ "bossroom": "res://enemies/boss.tscn" }`. |
+| `scene_to_spawn` | `PackedScene` | `null` | — | The scene to instantiate at each point. Accepts `res://` path strings in JSON. |
 | `spawn_probability` | `float` | `1.0` | `0..1` | Probability each point spawns. Also multiplied by point's `density`. |
 | `random_y_rotation` | `bool` | `true` | — | Randomize Y-axis rotation of spawned instances. |
 | `random_seed` | `int` | `0` | — | Seed for RNG. |
@@ -692,13 +693,47 @@ Every pipeline node has a set of **typed ports** and **configurable properties**
       }
     },
     {
-      "name": "Spawn_Filter",
+      "name": "Spawn_Filter_Boss",
       "type": "UnderGenPointFilterNode",
-      "pos": [1050, 150],
+      "pos": [1050, 140],
       "properties": {
+        "required_zone_name": "BossRoom",
+        "zone_match_mode": 0,
+        "min_spacing": 4.0,
+        "min_slope": 0.0,
+        "max_slope": 0.3
+      }
+    },
+    {
+      "name": "Spawner_Boss",
+      "type": "UnderGenSceneSpawnerNode",
+      "pos": [1180, 140],
+      "properties": {
+        "scene_to_spawn": "res://entities/boss.tscn",
+        "spawn_probability": 1.0,
+        "random_seed": 100
+      }
+    },
+    {
+      "name": "Spawn_Filter_Default",
+      "type": "UnderGenPointFilterNode",
+      "pos": [1050, 200],
+      "properties": {
+        "required_zone_name": "BossRoom",
+        "zone_match_mode": 2,
         "min_spacing": 3.0,
         "min_slope": 0.0,
         "max_slope": 0.3
+      }
+    },
+    {
+      "name": "Spawner_Default",
+      "type": "UnderGenSceneSpawnerNode",
+      "pos": [1180, 200],
+      "properties": {
+        "scene_to_spawn": "res://entities/enemy.tscn",
+        "spawn_probability": 0.8,
+        "random_seed": 200
       }
     },
     {
@@ -710,20 +745,6 @@ Every pipeline node has a set of **typed ports** and **configurable properties**
         "voxel_size": 1.0,
         "generate_collision": true
       }
-    },
-    {
-      "name": "Scene_Spawner",
-      "type": "UnderGenSceneSpawnerNode",
-      "pos": [1150, 150],
-      "properties": {
-        "scene_to_spawn": "res://entities/enemy.tscn",
-        "zone_scene_map": {
-          "bossroom": "res://entities/boss.tscn"
-        },
-        "spawn_probability": 0.8,
-        "random_y_rotation": true,
-        "random_seed": 12345
-      }
     }
   ],
   "connections": [
@@ -734,8 +755,10 @@ Every pipeline node has a set of **typed ports** and **configurable properties**
     { "from_node": "Smooth",           "from_port": 0, "to_node": "Material_Stamp",    "to_port": 0 },
     { "from_node": "Material_Stamp",   "from_port": 0, "to_node": "Surface_Sampler",   "to_port": 0 },
     { "from_node": "Material_Stamp",   "from_port": 0, "to_node": "Mesher",            "to_port": 0 },
-    { "from_node": "Surface_Sampler",  "from_port": 1, "to_node": "Spawn_Filter",      "to_port": 0 },
-    { "from_node": "Spawn_Filter",     "from_port": 0, "to_node": "Scene_Spawner",     "to_port": 0 }
+    { "from_node": "Surface_Sampler",       "from_port": 1, "to_node": "Spawn_Filter_Boss",   "to_port": 0 },
+    { "from_node": "Spawn_Filter_Boss",     "from_port": 0, "to_node": "Spawner_Boss",         "to_port": 0 },
+    { "from_node": "Surface_Sampler",       "from_port": 1, "to_node": "Spawn_Filter_Default", "to_port": 0 },
+    { "from_node": "Spawn_Filter_Default",  "from_port": 0, "to_node": "Spawner_Default",      "to_port": 0 }
   ]
 }
 ```

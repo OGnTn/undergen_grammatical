@@ -44,8 +44,10 @@ void UnderGenMaterialStamperNode::_execute(const Dictionary &inputs, Dictionary 
     int gsy = grid->get_grid_size_y();
     int gsz = grid->get_grid_size_z();
 
-    // ── Pass 1: Build zone name → zone id map ──────────────────────────
-    std::map<String, int> zone_name_to_id;
+    // ── Pass 1: Build zone name → ALL zone ids map ─────────────────────
+    // A zone name can have MULTIPLE IDs because register_zone_name creates a
+    // new ID for every room of the same type. We must map ALL of them.
+    std::map<String, std::vector<int>> zone_name_to_ids;
 
     for (int z = 0; z < gsz; ++z) {
         for (int y = 0; y < gsy; ++y) {
@@ -53,18 +55,38 @@ void UnderGenMaterialStamperNode::_execute(const Dictionary &inputs, Dictionary 
                 int zid = grid->get_zone_at(Vector3i(x, y, z));
                 if (zid > 0) {
                     String zname = grid->get_zone_name_by_id(zid);
-                    if (zone_name_to_id.find(zname) == zone_name_to_id.end()) {
-                        zone_name_to_id[zname] = zid;
+                    auto &vec = zone_name_to_ids[zname];
+                    // Only add if not already present
+                    bool found = false;
+                    for (int v : vec) {
+                        if (v == zid) { found = true; break; }
                     }
+                    if (!found) vec.push_back(zid);
                 }
             }
         }
     }
 
+    // ── Diagnostic: print all zones actually found in the grid ─────────
+    int total_ids = 0;
+    for (const auto &pair : zone_name_to_ids) total_ids += (int)pair.second.size();
+    UtilityFunctions::print("UnderGenMaterialStamperNode: Zones found in grid (", (int)zone_name_to_ids.size(), " names, ", total_ids, " ids):");
+    for (const auto &pair : zone_name_to_ids) {
+        String ids_str;
+        for (size_t j = 0; j < pair.second.size(); ++j) {
+            if (j > 0) ids_str += ",";
+            ids_str += String::num_int64(pair.second[j]);
+        }
+        UtilityFunctions::print("   name=\"", pair.first, "\"  ids=[", ids_str, "]");
+    }
+
     // ── Resolve zone_name → material_id entries, build zone_id → material lookup ──
+    // First pass: find max zone ID to size the lookup vector
     int max_zone_id = 0;
-    for (const auto &pair : zone_name_to_id) {
-        if (pair.second > max_zone_id) max_zone_id = pair.second;
+    for (const auto &pair : zone_name_to_ids) {
+        for (int zid : pair.second) {
+            if (zid > max_zone_id) max_zone_id = zid;
+        }
     }
 
     std::vector<int> zone_id_to_material(max_zone_id + 1, default_material_id);
@@ -76,12 +98,14 @@ void UnderGenMaterialStamperNode::_execute(const Dictionary &inputs, Dictionary 
         String zone_name = entry->get_zone_name();
         int mat_id = entry->get_material_id();
 
-        auto it = zone_name_to_id.find(zone_name);
-        if (it != zone_name_to_id.end()) {
-            int zid = it->second;
-            if (zid >= 0 && zid <= max_zone_id) {
-                zone_id_to_material[zid] = mat_id;
+        auto it = zone_name_to_ids.find(zone_name);
+        if (it != zone_name_to_ids.end()) {
+            for (int zid : it->second) {
+                if (zid >= 0 && zid <= max_zone_id) {
+                    zone_id_to_material[zid] = mat_id;
+                }
             }
+            UtilityFunctions::print("UnderGenMaterialStamperNode: Mapped zone \"", zone_name, "\" (", (int)it->second.size(), " ids) → material ", mat_id);
         } else {
             UtilityFunctions::print("UnderGenMaterialStamperNode: Zone '", zone_name, "' not found in grid, skipping.");
         }

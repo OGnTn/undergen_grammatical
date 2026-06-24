@@ -212,8 +212,12 @@ int DensityGrid::get_zone_at(const Vector3i &pos) const {
 }
 
 int DensityGrid::register_zone_name(String name) {
+    // Reuse existing ID if this zone name was already registered
+    for (size_t i = 1; i < zone_id_map.size(); ++i) {
+        if (zone_id_map[i] == name) return (int)i;
+    }
     zone_id_map.push_back(name);
-    return zone_id_map.size() - 1;
+    return (int)zone_id_map.size() - 1;
 }
 
 String DensityGrid::get_zone_name_by_id(int zone_id) const {

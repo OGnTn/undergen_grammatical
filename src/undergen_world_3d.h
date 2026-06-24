@@ -19,6 +19,13 @@ private:
     float voxel_size = 1.0f;
     bool generate_on_ready = false;
 
+    // Debug Visualization
+    bool debug_show_zone_labels = false;
+    int debug_zone_label_font_size = 24;
+    Color debug_zone_label_color = Color(1.0f, 1.0f, 0.0f, 1.0f); // yellow
+    Dictionary _last_context; // stored for debug label spawning
+    float _last_voxel_size = 1.0f; // captured from mesher during layout
+
     // Threading State
     std::thread gen_thread;
     std::mutex thread_mutex;
@@ -48,6 +55,14 @@ public:
     void set_generate_on_ready(bool p_enabled);
     bool get_generate_on_ready() const;
 
+    // Debug Visualization
+    void set_debug_show_zone_labels(bool p_enabled);
+    bool get_debug_show_zone_labels() const;
+    void set_debug_zone_label_font_size(int p_size);
+    int get_debug_zone_label_font_size() const;
+    void set_debug_zone_label_color(const Color &p_color);
+    Color get_debug_zone_label_color() const;
+
     // Generation entry point
     void generate();
     void cancel_generation();
@@ -62,6 +77,10 @@ private:
     void _on_meshing_completed(const Dictionary &outputs);
     void _on_spawning_completed();
     void _on_generation_failed(const String &reason);
+
+    // Debug helpers
+    void _spawn_debug_zone_labels(const Dictionary &context);
+    void _clear_debug_labels();
 };
 
 } // namespace godot

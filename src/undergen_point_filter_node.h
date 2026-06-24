@@ -13,8 +13,9 @@ class UnderGenPointFilterNode : public UnderGenNode {
 
 public:
     enum ZoneMatchMode {
-        ZONE_MATCH_EXACT = 0,  // Match any name in comma-separated list
-        ZONE_MATCH_PREFIX = 1  // Match any name whose prefix is in the list
+        ZONE_MATCH_EXACT = 0,         // Point passes if zone matches any name in list
+        ZONE_MATCH_PREFIX = 1,        // Point passes if zone starts with any prefix in list
+        ZONE_MATCH_EXCLUDE = 2        // Point passes if zone matches NONE of the names in list
     };
 
 private:
