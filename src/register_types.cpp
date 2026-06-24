@@ -1,56 +1,89 @@
 // src/register_types.cpp
 #include "register_types.h"
 
+// Existing classes
 #include "density_grid.h"
 #include "level_density_grid.h"
 #include "mc_chunk.h"
 #include "chunk_manager.h"
 
+// New pipeline infrastructure
+#include "undergen_node.h"
+#include "undergen_point_set.h"
+#include "undergen_pipeline.h"
+#include "undergen_world_3d.h"
+
+// Concrete pipeline nodes
+#include "undergen_bsp_placer_node.h"
+#include "undergen_astar_carver_node.h"
+#include "undergen_bezier_carver_node.h"
+#include "undergen_noise_node.h"
+#include "undergen_smooth_node.h"
+#include "undergen_vox_stamp_node.h"
+#include "undergen_surface_sampler_node.h"
+#include "undergen_point_filter_node.h"
+#include "undergen_mesher_node.h"
+#include "undergen_scene_spawner_node.h"
+#include "undergen_grammar_node.h"
+#include "undergen_material_stamper_node.h"
+#include "zone_material_entry.h"
+
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
-#include <gdextension_interface.h> // Correct header for GDExtensionInterface
+#include <gdextension_interface.h>
 #include <godot_cpp/godot.hpp>
 
 using namespace godot;
 
-// Module initialization callback function
 void initialize_density_grid_module(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
-        return; // Only initialize when the scene level is reached
+        return;
     }
 
-    // Register custom classes
+    // --- Legacy classes (kept for backwards compatibility) ---
     ClassDB::register_class<DensityGrid>();
     ClassDB::register_class<LevelDensityGrid>();
     ClassDB::register_class<MCChunk>();
     ClassDB::register_class<ChunkManager>();
-    // You could register singletons or editor plugins here if needed
+
+    // --- New Pipeline Infrastructure ---
+    ClassDB::register_class<UnderGenPointSet>();
+    ClassDB::register_class<UnderGenNode>();
+    ClassDB::register_class<UnderGenPipeline>();
+    ClassDB::register_class<UnderGenWorld3D>();
+
+    // --- Concrete Pipeline Nodes ---
+    ClassDB::register_class<UnderGenBSPPlacerNode>();
+    ClassDB::register_class<UnderGenAStarCarverNode>();
+    ClassDB::register_class<UnderGenBezierCarverNode>();
+    ClassDB::register_class<UnderGenNoiseNode>();
+    ClassDB::register_class<UnderGenSmoothNode>();
+    ClassDB::register_class<UnderGenVoxStampNode>();
+    ClassDB::register_class<UnderGenSurfaceSamplerNode>();
+    ClassDB::register_class<UnderGenPointFilterNode>();
+    ClassDB::register_class<UnderGenMesherNode>();
+    ClassDB::register_class<UnderGenSceneSpawnerNode>();
+    ClassDB::register_class<UnderGenGrammarNode>();
+    ClassDB::register_class<UnderGenMaterialStamperNode>();
+    ClassDB::register_class<ZoneMaterialEntry>();
 }
 
-// Module termination callback function
 void uninitialize_density_grid_module(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
         return;
     }
-    // Uninitialization logic if necessary (usually not needed for simple classes)
 }
 
-// GDExtension entry point definition
-// Tells Godot where to find the initialization and termination functions
 extern "C" {
-// Use GDExtensionBool to match the expected return type
 GDExtensionBool GDE_EXPORT gdextension_entry_point(
     GDExtensionInterfaceGetProcAddress p_get_proc_address,
     GDExtensionClassLibraryPtr p_library,
     GDExtensionInitialization *r_initialization)
 {
     godot::GDExtensionBinding::InitObject init_obj(p_get_proc_address, p_library, r_initialization);
-
-    // Set up the initialization and termination function pointers
     init_obj.register_initializer(initialize_density_grid_module);
     init_obj.register_terminator(uninitialize_density_grid_module);
     init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SCENE);
-
-    return init_obj.init(); // Finalize the initialization object
+    return init_obj.init();
 }
 } // extern "C"
