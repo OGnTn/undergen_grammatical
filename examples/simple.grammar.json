@@ -1,0 +1,48 @@
+{
+	"axiom": "Start",
+	"room_types": [
+		{ "symbol": "Start",    "color": [0.3, 0.7, 0.5, 1.0], "min_size": [4, 3, 4], "max_size": [8, 5, 8] },
+		{ "symbol": "Room",     "color": [0.4, 0.6, 0.9, 1.0], "min_size": [5, 3, 5], "max_size": [10, 6, 10] },
+		{ "symbol": "Hallway",  "color": [0.6, 0.5, 0.4, 1.0], "min_size": [3, 3, 6], "max_size": [5, 5, 14] },
+		{ "symbol": "DeadEnd",  "color": [0.4, 0.4, 0.4, 1.0], "min_size": [3, 3, 3], "max_size": [5, 5, 5] }
+	],
+	"rules": [
+		{
+			"rule_name": "Start → Room + Hallway",
+			"lhs_symbol": "Start",
+			"probability": 1.0,
+			"entry_node_id": "room",
+			"exit_node_id": "hall",
+			"rhs_nodes": [
+				{ "id": "room", "symbol": "Room",    "constraints": { "fixed_pos": [0, 0, -10] } },
+				{ "id": "hall", "symbol": "Hallway" }
+			],
+			"rhs_edges": [
+				{ "from": "room", "to": "hall", "type": "corridor" }
+			]
+		},
+		{
+			"rule_name": "Hallway → Room + Hallway (recursive)",
+			"lhs_symbol": "Hallway",
+			"probability": 0.7,
+			"entry_node_id": "room",
+			"exit_node_id": "hall",
+			"rhs_nodes": [
+				{ "id": "room", "symbol": "Room" },
+				{ "id": "hall", "symbol": "Hallway" }
+			],
+			"rhs_edges": [
+				{ "from": "room", "to": "hall", "type": "corridor" }
+			]
+		},
+		{
+			"rule_name": "Hallway → DeadEnd (terminal fallback)",
+			"lhs_symbol": "Hallway",
+			"probability": 1.0,
+			"rhs_nodes": [
+				{ "id": "end", "symbol": "DeadEnd" }
+			],
+			"rhs_edges": []
+		}
+	]
+}

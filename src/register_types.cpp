@@ -12,6 +12,7 @@
 #include "undergen_point_set.h"
 #include "undergen_pipeline.h"
 #include "undergen_world_3d.h"
+#include "level_grammar_spec.h"
 
 // Concrete pipeline nodes
 #include "undergen_bsp_placer_node.h"
@@ -51,6 +52,11 @@ void initialize_density_grid_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<UnderGenNode>();
     ClassDB::register_class<UnderGenPipeline>();
     ClassDB::register_class<UnderGenWorld3D>();
+
+    // --- Grammar & Pipeline Spec (code/JSON builder API) ---
+    ClassDB::register_class<LevelGrammarRoomTypeSpec>();
+    ClassDB::register_class<LevelGrammarRuleSpec>();
+    ClassDB::register_class<LevelGrammarSpec>();
 
     // --- Concrete Pipeline Nodes ---
     ClassDB::register_class<UnderGenBSPPlacerNode>();

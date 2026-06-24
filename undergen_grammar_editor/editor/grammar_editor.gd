@@ -107,6 +107,20 @@ func _ready():
 	save_btn.pressed.connect(_on_save)
 	top_bar.add_child(save_btn)
 
+	top_bar.add_child(VSeparator.new())
+
+	var import_json_btn = Button.new()
+	import_json_btn.text = "⤓ Import JSON"
+	import_json_btn.tooltip_text = "Load a .grammar.json file and convert to a grammar resource."
+	import_json_btn.pressed.connect(_on_import_json)
+	top_bar.add_child(import_json_btn)
+
+	var export_json_btn = Button.new()
+	export_json_btn.text = "⤒ Export JSON"
+	export_json_btn.tooltip_text = "Export the current grammar as a .grammar.json file."
+	export_json_btn.pressed.connect(_on_export_json)
+	top_bar.add_child(export_json_btn)
+
 	vbox.add_child(HSeparator.new())
 
 	# ── Splash (no resource loaded) ──────────────────────────────────────────
@@ -198,9 +212,12 @@ func _on_new_grammar():
 		_new_dlg.access    = EditorFileDialog.ACCESS_RESOURCES
 		_new_dlg.file_mode = EditorFileDialog.FILE_MODE_SAVE_FILE
 		_new_dlg.add_filter("*.tres", "Godot Resource")
-		_new_dlg.title     = "Create New Grammar Resource"
-		_new_dlg.file_selected.connect(_create_grammar_at_path)
 		add_child(_new_dlg)
+	# Always reconnect — other paths (save-as) may have overridden the callback
+	for conn in _new_dlg.file_selected.get_connections():
+		_new_dlg.file_selected.disconnect(conn.callable)
+	_new_dlg.title = "Create New Grammar Resource"
+	_new_dlg.file_selected.connect(_create_grammar_at_path)
 	_new_dlg.popup_centered_ratio(0.65)
 
 
@@ -245,11 +262,182 @@ func _on_save():
 		printerr("GrammarEditor: No resource loaded.")
 		return
 	if current_resource.resource_path == "":
-		# Never been saved — open save dialog.
-		_on_new_grammar()
+		# Never been saved — open save-as dialog for the current resource.
+		if not _new_dlg:
+			_new_dlg = EditorFileDialog.new()
+			_new_dlg.access    = EditorFileDialog.ACCESS_RESOURCES
+			_new_dlg.file_mode = EditorFileDialog.FILE_MODE_SAVE_FILE
+			_new_dlg.add_filter("*.tres", "Godot Resource")
+			add_child(_new_dlg)
+		for conn in _new_dlg.file_selected.get_connections():
+			_new_dlg.file_selected.disconnect(conn.callable)
+		_new_dlg.title = "Save Grammar As…"
+		_new_dlg.file_selected.connect(_save_current_as)
+		_new_dlg.popup_centered_ratio(0.65)
 		return
 	ResourceSaver.save(current_resource)
 	print("GrammarEditor: Saved → ", current_resource.resource_path)
+
+
+func _save_current_as(path: String):
+	if not current_resource: return
+	var err = ResourceSaver.save(current_resource, path)
+	if err != OK:
+		printerr("GrammarEditor: Failed to save to ", path)
+		return
+	current_resource = load(path) as LevelGrammarResource
+	_on_resource_changed()
+	print("GrammarEditor: Saved → ", path)
+
+# ── JSON Import / Export ─────────────────────────────────────────────────
+
+var _json_import_dlg: EditorFileDialog = null
+var _json_export_dlg: EditorFileDialog = null
+
+func _on_import_json():
+	if not _json_import_dlg:
+		_json_import_dlg = EditorFileDialog.new()
+		_json_import_dlg.access    = EditorFileDialog.ACCESS_RESOURCES
+		_json_import_dlg.file_mode = EditorFileDialog.FILE_MODE_OPEN_FILE
+		_json_import_dlg.add_filter("*.grammar.json;*.json", "Grammar JSON files")
+		_json_import_dlg.title     = "Import Grammar from JSON"
+		_json_import_dlg.file_selected.connect(_do_import_json)
+		add_child(_json_import_dlg)
+	_json_import_dlg.popup_centered_ratio(0.65)
+
+
+func _do_import_json(path: String):
+	# Use C++ LevelGrammarSpec for robust JSON parsing (avoids GDScript
+	# typed-array serialization issues with ResourceSaver).
+	var spec: RefCounted = ClassDB.instantiate("LevelGrammarSpec")
+	if spec == null:
+		printerr("GrammarEditor: LevelGrammarSpec not available. Is the GDExtension loaded?")
+		return
+	var err = spec.from_json(FileAccess.get_file_as_string(path))
+	if err != OK:
+		printerr("GrammarEditor: JSON parse error in ", path)
+		return
+
+	# Convert from C++ LevelGrammarSpec → GDScript LevelGrammarResource
+	# (property-by-property copy avoids typed-array serialization bugs)
+	var res = LevelGrammarResource.new()
+	res.axiom = spec.axiom
+
+	for sv in spec.state_variables:
+		res.state_variables.append(sv)
+
+	for rt in spec.room_types:
+		var room = RoomType.new()
+		room.symbol   = rt.symbol
+		room.color    = rt.color
+		room.weight   = rt.weight
+		room.min_size = rt.min_size
+		room.max_size = rt.max_size
+		room.vox_path = rt.vox_path
+		res.room_types.append(room)
+
+	for rule in spec.rules:
+		var r = GraphRule.new()
+		r.rule_name      = rule.rule_name
+		r.lhs_symbol     = rule.lhs_symbol
+		r.probability    = rule.probability
+		r.entry_node_id  = rule.entry_node_id
+		r.exit_node_id   = rule.exit_node_id
+		r.condition_var  = rule.condition_var
+		r.condition_op   = rule.condition_op
+		r.condition_val  = rule.condition_val
+		# assign() is fine here — these won't be saved until the parent
+		# resource is saved, and by then they're owned by GraphRule
+		r.actions.assign(rule.actions)
+		r.rhs_nodes.assign(rule.rhs_nodes)
+		r.rhs_edges.assign(rule.rhs_edges)
+		res.rules.append(r)
+
+	current_resource = res
+	print("GrammarEditor: Imported grammar from JSON → ", path)
+
+
+func _on_export_json():
+	if not current_resource:
+		printerr("GrammarEditor: No grammar loaded to export.")
+		return
+
+	if not _json_export_dlg:
+		_json_export_dlg = EditorFileDialog.new()
+		_json_export_dlg.access    = EditorFileDialog.ACCESS_RESOURCES
+		_json_export_dlg.file_mode = EditorFileDialog.FILE_MODE_SAVE_FILE
+		_json_export_dlg.add_filter("*.grammar.json", "Grammar JSON files")
+		_json_export_dlg.title     = "Export Grammar as JSON"
+		_json_export_dlg.file_selected.connect(_do_export_json)
+		add_child(_json_export_dlg)
+	_json_export_dlg.popup_centered_ratio(0.65)
+
+
+func _do_export_json(path: String):
+	var d = _grammar_to_dictionary()
+	var text = JSON.stringify(d, "\t")
+	var file = FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		printerr("GrammarEditor: Could not write to: ", path)
+		return
+	file.store_string(text)
+	file.close()
+	print("GrammarEditor: Exported grammar to JSON → ", path)
+
+
+func _grammar_to_dictionary() -> Dictionary:
+	var d: Dictionary = {}
+	if current_resource == null:
+		return d
+
+	d["axiom"] = current_resource.axiom
+
+	# State variables
+	if not current_resource.state_variables.is_empty():
+		d["state_variables"] = current_resource.state_variables.duplicate()
+
+	# Room types
+	var rt_arr: Array = []
+	for rt: RoomType in current_resource.room_types:
+		var r: Dictionary = {}
+		r["symbol"]   = rt.symbol
+		r["color"]    = [rt.color.r, rt.color.g, rt.color.b, rt.color.a]
+		r["weight"]   = rt.weight
+		r["min_size"] = [rt.min_size.x, rt.min_size.y, rt.min_size.z]
+		r["max_size"] = [rt.max_size.x, rt.max_size.y, rt.max_size.z]
+		if not rt.vox_path.is_empty():
+			r["vox_path"] = rt.vox_path
+		rt_arr.append(r)
+	d["room_types"] = rt_arr
+
+	# Rules
+	var r_arr: Array = []
+	for r: GraphRule in current_resource.rules:
+		var rd: Dictionary = {}
+		rd["rule_name"]    = r.rule_name
+		rd["lhs_symbol"]   = r.lhs_symbol
+		rd["probability"]  = r.probability
+		if not r.entry_node_id.is_empty():
+			rd["entry_node_id"] = r.entry_node_id
+		if not r.exit_node_id.is_empty():
+			rd["exit_node_id"]  = r.exit_node_id
+
+		# Condition (only emit if var is set)
+		if not r.condition_var.is_empty():
+			rd["condition_var"] = r.condition_var
+			rd["condition_op"]  = r.condition_op
+			rd["condition_val"] = r.condition_val
+
+		# Actions
+		if not r.actions.is_empty():
+			rd["actions"] = r.actions.duplicate()
+
+		rd["rhs_nodes"] = r.rhs_nodes.duplicate(true)
+		rd["rhs_edges"] = r.rhs_edges.duplicate(true)
+		r_arr.append(rd)
+	d["rules"] = r_arr
+
+	return d
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  PALETTE TAB

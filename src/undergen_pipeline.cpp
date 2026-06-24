@@ -1,4 +1,7 @@
 #include "undergen_pipeline.h"
+#include <godot_cpp/classes/json.hpp>
+#include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/resource_saver.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <queue>
 #include <set>
@@ -21,6 +24,21 @@ void UnderGenPipeline::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("get_node_inputs", "node_name"), &UnderGenPipeline::get_node_inputs);
     ClassDB::bind_method(D_METHOD("get_node_outputs", "node_name"), &UnderGenPipeline::get_node_outputs);
+
+    // Builder
+    ClassDB::bind_method(D_METHOD("add_node_of_type", "class_name", "node_name", "properties", "editor_pos"),
+                         &UnderGenPipeline::add_node_of_type,
+                         DEFVAL(Dictionary()), DEFVAL(Vector2()));
+    ClassDB::bind_method(D_METHOD("connect", "from_name", "from_port", "to_name", "to_port"),
+                         &UnderGenPipeline::connect);
+
+    // Serialization
+    ClassDB::bind_method(D_METHOD("to_dictionary"), &UnderGenPipeline::to_dictionary);
+    ClassDB::bind_method(D_METHOD("from_dictionary", "d"), &UnderGenPipeline::from_dictionary);
+    ClassDB::bind_method(D_METHOD("to_json", "indent"), &UnderGenPipeline::to_json, DEFVAL(true));
+    ClassDB::bind_method(D_METHOD("from_json", "json_str"), &UnderGenPipeline::_from_json_bound);
+    ClassDB::bind_method(D_METHOD("save_to_file", "path"), &UnderGenPipeline::save_to_file);
+    ClassDB::bind_static_method("UnderGenPipeline", D_METHOD("load_from_json_file", "path"), &UnderGenPipeline::load_from_json_file);
 
     ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "nodes"), "set_nodes", "get_nodes");
     ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "connections"), "set_connections", "get_connections");
@@ -177,6 +195,173 @@ Dictionary UnderGenPipeline::get_node_inputs(const String &node_name) const {
 
 Dictionary UnderGenPipeline::get_node_outputs(const String &node_name) const {
     return node_outputs_cache.get(node_name, Dictionary());
+}
+
+
+// ── Builder API ───────────────────────────────────────────────────────────────
+
+Ref<UnderGenNode> UnderGenPipeline::add_node_of_type(
+    const String &class_name, const String &node_name,
+    const Dictionary &properties, const Vector2 &editor_pos)
+{
+    Ref<UnderGenNode> node = ClassDB::instantiate(class_name);
+    if (node.is_null()) {
+        UtilityFunctions::printerr("UnderGenPipeline: Could not instantiate class '", class_name, "'.");
+        return node;
+    }
+
+    node->set_name(node_name);
+    node->set_editor_position(editor_pos);
+
+    // Apply properties
+    Array keys = properties.keys();
+    for (int i = 0; i < keys.size(); i++) {
+        String key = keys[i];
+        Variant value = properties[key];
+        node->set(key, value);
+    }
+
+    add_pipeline_node(node);
+    return node;
+}
+
+void UnderGenPipeline::connect(const String &from_name, int from_port,
+                                const String &to_name, int to_port)
+{
+    add_connection(from_name, from_port, to_name, to_port);
+}
+
+// ── Dictionary Serialization ─────────────────────────────────────────────────
+
+Dictionary UnderGenPipeline::to_dictionary() const {
+    Dictionary d;
+
+    // Serialize nodes
+    Array node_dicts;
+    for (int i = 0; i < nodes.size(); i++) {
+        Ref<UnderGenNode> n = nodes[i];
+        if (n.is_null()) continue;
+
+        Dictionary nd;
+        nd["name"] = n->get_name();
+        nd["type"] = n->get_class();
+        nd["pos"]  = n->get_editor_position();
+
+        // Collect all exported properties (that differ from defaults would be ideal,
+        // but for clarity we collect all script-visible properties)
+        Array prop_list = n->get_property_list();
+        Dictionary node_props;
+        for (int j = 0; j < prop_list.size(); j++) {
+            Dictionary pinfo = prop_list[j];
+            String pname = pinfo["name"];
+            // Skip internal / metadata properties
+            if (pname.begins_with("_") || pname == "name" || pname == "editor_position"
+                || pname == "resource_local_to_scene" || pname == "script"
+                || pname == "resource_path" || pname == "resource_name")
+                continue;
+
+            uint32_t usage = pinfo.get("usage", 0);
+            // Only serialize properties marked as STORAGE
+            if (!(usage & PROPERTY_USAGE_STORAGE)) continue;
+
+            Variant val = n->get(pname);
+            // Skip default values to keep the spec clean
+            // (We'll include all for simplicity; users can trim.)
+            node_props[pname] = val;
+        }
+        nd["properties"] = node_props;
+        node_dicts.append(nd);
+    }
+    d["nodes"] = node_dicts;
+
+    // Serialize connections
+    d["connections"] = connections.duplicate();
+
+    return d;
+}
+
+void UnderGenPipeline::from_dictionary(const Dictionary &d) {
+    // Clear existing
+    nodes.clear();
+    connections.clear();
+
+    // Rebuild nodes
+    if (d.has("nodes")) {
+        Array node_dicts = d["nodes"];
+        for (int i = 0; i < node_dicts.size(); i++) {
+            Dictionary nd = node_dicts[i];
+            String type = nd.get("type", "");
+            String name = nd.get("name", "");
+            Vector2 pos  = nd.get("pos", Vector2());
+            Dictionary props = nd.get("properties", Dictionary());
+
+            Ref<UnderGenNode> node = add_node_of_type(type, name, props, pos);
+            if (node.is_null()) {
+                UtilityFunctions::printerr("UnderGenPipeline: Skipped unknown node type '", type, "'.");
+            }
+        }
+    }
+
+    // Rebuild connections
+    if (d.has("connections")) {
+        connections = d["connections"];
+    }
+}
+
+// ── JSON Serialization ───────────────────────────────────────────────────────
+
+String UnderGenPipeline::to_json(bool indent) const {
+    Dictionary d = to_dictionary();
+    return JSON::stringify(d, indent ? "    " : "");
+}
+
+Error UnderGenPipeline::from_json(const String &json_str,
+                                    int *r_err_line, String *r_err_message) {
+    Ref<JSON> json;
+    json.instantiate();
+    Error err = json->parse(json_str);
+    if (err != OK) {
+        if (r_err_line)    *r_err_line = json->get_error_line();
+        if (r_err_message) *r_err_message = json->get_error_message();
+        return err;
+    }
+
+    Variant parsed = json->get_data();
+    if (parsed.get_type() != Variant::DICTIONARY) {
+        if (r_err_line)    *r_err_line = 0;
+        if (r_err_message) *r_err_message = "JSON root must be an object.";
+        return ERR_PARSE_ERROR;
+    }
+
+    from_dictionary(parsed);
+    return OK;
+}
+
+Error UnderGenPipeline::_from_json_bound(const String &json_str) {
+    return from_json(json_str);
+}
+
+Error UnderGenPipeline::save_to_file(const String &path) {
+    return ResourceSaver::get_singleton()->save(Ref<Resource>(this), path);
+}
+
+Ref<UnderGenPipeline> UnderGenPipeline::load_from_json_file(const String &path) {
+    Ref<FileAccess> f = FileAccess::open(path, FileAccess::READ);
+    if (f.is_null()) {
+        UtilityFunctions::printerr("UnderGenPipeline: Could not open file: ", path);
+        return Ref<UnderGenPipeline>();
+    }
+    String content = f->get_as_text();
+    f->close();
+
+    Ref<UnderGenPipeline> pipeline;
+    pipeline.instantiate();
+    Error err = pipeline->from_json(content);
+    if (err != OK) {
+        UtilityFunctions::printerr("UnderGenPipeline: JSON parse error in ", path, ": ", err);
+        return Ref<UnderGenPipeline>();
+    }
+    return pipeline;
 }
 
 

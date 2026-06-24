@@ -5,6 +5,10 @@ extends EditorPlugin
 var grammar_editor_instance  # Grammar rule graph editor
 var pipeline_editor_instance # PCG pipeline graph editor
 
+# --- Import plugins (auto-import .json → .tres) ---
+var _grammar_json_import_plugin
+var _pipeline_json_import_plugin
+
 # --- State ---
 var _current_tab: int = 0  # 0 = Grammar, 1 = Pipeline
 var _selected_world_node: Node = null
@@ -25,6 +29,17 @@ func _enter_tree():
 		"res://addons/undergen_grammar_editor/editor/pipeline_editor.gd"
 	).new()
 
+	# --- Register auto-import plugins for .json files ---
+	_grammar_json_import_plugin = preload(
+		"res://addons/undergen_grammar_editor/editor/grammar_json_import_plugin.gd"
+	).new()
+	add_import_plugin(_grammar_json_import_plugin)
+
+	_pipeline_json_import_plugin = preload(
+		"res://addons/undergen_grammar_editor/editor/pipeline_json_import_plugin.gd"
+	).new()
+	add_import_plugin(_pipeline_json_import_plugin)
+
 	# Wrap both in a single main container
 	var main_container = _build_main_screen()
 	get_editor_interface().get_editor_main_screen().add_child(main_container)
@@ -40,6 +55,8 @@ func _enter_tree():
 
 func _exit_tree():
 	remove_custom_type("UnderGenWorld3D")
+	remove_import_plugin(_grammar_json_import_plugin)
+	remove_import_plugin(_pipeline_json_import_plugin)
 	if grammar_editor_instance and is_instance_valid(grammar_editor_instance):
 		grammar_editor_instance.queue_free()
 	if pipeline_editor_instance and is_instance_valid(pipeline_editor_instance):
@@ -66,6 +83,9 @@ func _get_plugin_icon():
 func _handles(object) -> bool:
 	if object is LevelGrammarResource:
 		return true
+	# Also handle C++ LevelGrammarSpec (created by auto-import from .grammar.json)
+	if object != null and object.get_class() == "LevelGrammarSpec":
+		return true
 	if object != null and object.get_class() == "UnderGenPipeline":
 		return true
 	# Auto-open when an UnderGenWorld3D node is selected in the scene
@@ -74,10 +94,14 @@ func _handles(object) -> bool:
 	return false
 
 func _edit(object):
-	if object is LevelGrammarResource:
+	if object is LevelGrammarResource or (object != null and object.get_class() == "LevelGrammarSpec"):
 		_current_tab = 0
 		_refresh_tab()
 		if grammar_editor_instance:
+			# If it's a C++ LevelGrammarSpec, convert to GDScript LevelGrammarResource
+			# for full editor compatibility.
+			if object.get_class() == "LevelGrammarSpec":
+				object = _convert_spec_to_gdscript_resource(object)
 			grammar_editor_instance.current_resource = object
 
 	elif object != null and object.get_class() == "UnderGenPipeline":
@@ -145,3 +169,41 @@ func _refresh_tab():
 		pipeline_editor_instance.visible = (_current_tab == 1)
 	if _tab_bar:
 		_tab_bar.current_tab = _current_tab
+
+
+## Convert a C++ LevelGrammarSpec (from auto-import) to a GDScript
+## LevelGrammarResource so the grammar editor can inspect and modify it.
+func _convert_spec_to_gdscript_resource(spec) -> LevelGrammarResource:
+	var res = LevelGrammarResource.new()
+	res.resource_path = spec.resource_path  # preserve path
+	res.axiom = spec.axiom
+
+	for sv in spec.state_variables:
+		res.state_variables.append(sv)
+
+	for rt in spec.room_types:
+		var room = RoomType.new()
+		room.symbol   = rt.symbol
+		room.color    = rt.color
+		room.weight   = rt.weight
+		room.min_size = rt.min_size
+		room.max_size = rt.max_size
+		room.vox_path = rt.vox_path
+		res.room_types.append(room)
+
+	for rule in spec.rules:
+		var r = GraphRule.new()
+		r.rule_name      = rule.rule_name
+		r.lhs_symbol     = rule.lhs_symbol
+		r.probability    = rule.probability
+		r.entry_node_id  = rule.entry_node_id
+		r.exit_node_id   = rule.exit_node_id
+		r.condition_var  = rule.condition_var
+		r.condition_op   = rule.condition_op
+		r.condition_val  = rule.condition_val
+		r.actions.assign(rule.actions)
+		r.rhs_nodes.assign(rule.rhs_nodes)
+		r.rhs_edges.assign(rule.rhs_edges)
+		res.rules.append(r)
+
+	return res

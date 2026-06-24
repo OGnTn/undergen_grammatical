@@ -152,6 +152,20 @@ func _build_ui():
 	save_btn.pressed.connect(_on_save_pipeline)
 	toolbar.add_child(save_btn)
 
+	toolbar.add_child(VSeparator.new())
+
+	var import_json_btn = Button.new()
+	import_json_btn.text = "⤓ Import JSON"
+	import_json_btn.tooltip_text = "Load a .pipeline.json file and create a pipeline from it."
+	import_json_btn.pressed.connect(_on_import_json)
+	toolbar.add_child(import_json_btn)
+
+	var export_json_btn = Button.new()
+	export_json_btn.text = "⤒ Export JSON"
+	export_json_btn.tooltip_text = "Export the current pipeline as a .pipeline.json file."
+	export_json_btn.pressed.connect(_on_export_json)
+	toolbar.add_child(export_json_btn)
+
 	var separator = VSeparator.new()
 	toolbar.add_child(separator)
 
@@ -426,3 +440,56 @@ func _on_save_pipeline():
 	else:
 		ResourceSaver.save(current_pipeline, path)
 		print("PipelineEditor: Saved to ", path)
+
+# ── JSON Import / Export ─────────────────────────────────────────────────
+
+var _json_import_dlg: EditorFileDialog = null
+var _json_export_dlg: EditorFileDialog = null
+
+func _on_import_json():
+	if not _json_import_dlg:
+		_json_import_dlg = EditorFileDialog.new()
+		_json_import_dlg.access    = EditorFileDialog.ACCESS_RESOURCES
+		_json_import_dlg.file_mode = EditorFileDialog.FILE_MODE_OPEN_FILE
+		_json_import_dlg.add_filter("*.pipeline.json;*.json", "Pipeline JSON files")
+		_json_import_dlg.title     = "Import Pipeline from JSON"
+		_json_import_dlg.file_selected.connect(_do_import_json)
+		add_child(_json_import_dlg)
+	_json_import_dlg.popup_centered_ratio(0.65)
+
+
+func _do_import_json(path: String):
+	var pipeline = UnderGenPipeline.load_from_json_file(path)
+	if pipeline == null:
+		printerr("PipelineEditor: Failed to load pipeline from: ", path)
+		return
+	current_pipeline = pipeline
+	print("PipelineEditor: Imported pipeline from JSON → ", path)
+
+
+func _on_export_json():
+	if not current_pipeline:
+		printerr("PipelineEditor: No pipeline loaded to export.")
+		return
+	_save_pipeline_state()
+
+	if not _json_export_dlg:
+		_json_export_dlg = EditorFileDialog.new()
+		_json_export_dlg.access    = EditorFileDialog.ACCESS_RESOURCES
+		_json_export_dlg.file_mode = EditorFileDialog.FILE_MODE_SAVE_FILE
+		_json_export_dlg.add_filter("*.pipeline.json", "Pipeline JSON files")
+		_json_export_dlg.title     = "Export Pipeline as JSON"
+		_json_export_dlg.file_selected.connect(_do_export_json)
+		add_child(_json_export_dlg)
+	_json_export_dlg.popup_centered_ratio(0.65)
+
+
+func _do_export_json(path: String):
+	var text = current_pipeline.to_json()
+	var file = FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		printerr("PipelineEditor: Could not write to: ", path)
+		return
+	file.store_string(text)
+	file.close()
+	print("PipelineEditor: Exported pipeline to JSON → ", path)

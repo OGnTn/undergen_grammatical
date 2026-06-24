@@ -1,6 +1,7 @@
 #include "undergen_world_3d.h"
 #include "undergen_mesher_node.h"
 #include "undergen_scene_spawner_node.h"
+#include "undergen_grammar_node.h"
 #include <godot_cpp/variant/utility_functions.hpp>
 
 namespace godot {
@@ -23,6 +24,9 @@ void UnderGenWorld3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_pipeline", "pipeline"), &UnderGenWorld3D::set_pipeline);
     ClassDB::bind_method(D_METHOD("get_pipeline"), &UnderGenWorld3D::get_pipeline);
 
+    ClassDB::bind_method(D_METHOD("set_grammar_override", "grammar"), &UnderGenWorld3D::set_grammar_override);
+    ClassDB::bind_method(D_METHOD("get_grammar_override"), &UnderGenWorld3D::get_grammar_override);
+
     ClassDB::bind_method(D_METHOD("set_generation_seed", "seed"), &UnderGenWorld3D::set_generation_seed);
     ClassDB::bind_method(D_METHOD("get_generation_seed"), &UnderGenWorld3D::get_generation_seed);
 
@@ -44,6 +48,7 @@ void UnderGenWorld3D::_bind_methods() {
 
     // Inspector Properties
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "pipeline", PROPERTY_HINT_RESOURCE_TYPE, "UnderGenPipeline"), "set_pipeline", "get_pipeline");
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "grammar", PROPERTY_HINT_RESOURCE_TYPE, "Resource"), "set_grammar_override", "get_grammar_override");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "seed"), "set_generation_seed", "get_generation_seed");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "voxel_size"), "set_voxel_size", "get_voxel_size");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_on_ready"), "set_generate_on_ready", "get_generate_on_ready");
@@ -62,6 +67,14 @@ void UnderGenWorld3D::set_pipeline(const Ref<UnderGenPipeline> &p_pipeline) {
 
 Ref<UnderGenPipeline> UnderGenWorld3D::get_pipeline() const {
     return pipeline;
+}
+
+void UnderGenWorld3D::set_grammar_override(const Ref<Resource> &p_grammar) {
+    grammar_override = p_grammar;
+}
+
+Ref<Resource> UnderGenWorld3D::get_grammar_override() const {
+    return grammar_override;
 }
 
 void UnderGenWorld3D::set_generation_seed(int64_t p_seed) {
@@ -127,6 +140,29 @@ void UnderGenWorld3D::cancel_generation() {
 }
 
 void UnderGenWorld3D::_run_generation_async(int64_t p_seed) {
+    // ── Grammar override ──────────────────────────────────────────────────
+    // If the user assigned a grammar resource on this node, inject it into
+    // the pipeline's first Grammar Expander node so it supersedes whatever
+    // .tres path was baked into the pipeline JSON.
+    if (grammar_override.is_valid()) {
+        Array nodes = pipeline->get_nodes();
+        for (int i = 0; i < nodes.size(); ++i) {
+            Ref<UnderGenNode> node = nodes[i];
+            if (node.is_null()) continue;
+            UnderGenGrammarNode *grammar_node =
+                Object::cast_to<UnderGenGrammarNode>(node.ptr());
+            if (grammar_node) {
+                String path = grammar_override->get_path();
+                if (!path.is_empty()) {
+                    grammar_node->set_grammar_resource_path(path);
+                    UtilityFunctions::print(
+                        "UnderGenWorld3D: Grammar override → ", path);
+                }
+                break; // only override the first grammar node
+            }
+        }
+    }
+
     // Heavy processing runs on this background thread.
     // Inputs dictionary can contain global settings like seed and voxel_size.
     Dictionary initial_inputs;

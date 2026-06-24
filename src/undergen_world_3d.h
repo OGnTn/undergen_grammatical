@@ -14,6 +14,7 @@ class UnderGenWorld3D : public Node3D {
 
 private:
     Ref<UnderGenPipeline> pipeline;
+    Ref<Resource> grammar_override;   // if set, supersedes the pipeline's Grammar Expander node
     int64_t generation_seed = 12345;
     float voxel_size = 1.0f;
     bool generate_on_ready = false;
@@ -34,6 +35,9 @@ public:
     // Getters / Setters
     void set_pipeline(const Ref<UnderGenPipeline> &p_pipeline);
     Ref<UnderGenPipeline> get_pipeline() const;
+
+    void set_grammar_override(const Ref<Resource> &p_grammar);
+    Ref<Resource> get_grammar_override() const;
 
     void set_generation_seed(int64_t p_seed);
     int64_t get_generation_seed() const;
