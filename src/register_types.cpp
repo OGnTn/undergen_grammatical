@@ -3,9 +3,7 @@
 
 // Existing classes
 #include "density_grid.h"
-#include "level_density_grid.h"
 #include "mc_chunk.h"
-#include "chunk_manager.h"
 
 // New pipeline infrastructure
 #include "undergen_node.h"
@@ -41,11 +39,9 @@ void initialize_density_grid_module(ModuleInitializationLevel p_level) {
         return;
     }
 
-    // --- Legacy classes (kept for backwards compatibility) ---
+    // --- Core classes ---
     ClassDB::register_class<DensityGrid>();
-    ClassDB::register_class<LevelDensityGrid>();
     ClassDB::register_class<MCChunk>();
-    ClassDB::register_class<ChunkManager>();
 
     // --- New Pipeline Infrastructure ---
     ClassDB::register_class<UnderGenPointSet>();

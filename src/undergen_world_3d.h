@@ -19,6 +19,9 @@ private:
     float voxel_size = 1.0f;
     bool generate_on_ready = false;
 
+    // Inspector "button" — set to true triggers generation
+    bool _trigger_generate = false;
+
     // Debug Visualization
     bool debug_show_zone_labels = false;
     int debug_zone_label_font_size = 24;
@@ -54,6 +57,10 @@ public:
 
     void set_generate_on_ready(bool p_enabled);
     bool get_generate_on_ready() const;
+
+    // Inspector "button" — set true to trigger generation
+    void set_trigger_generate(bool p_val);
+    bool get_trigger_generate() const;
 
     // Debug Visualization
     void set_debug_show_zone_labels(bool p_enabled);

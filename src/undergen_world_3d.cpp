@@ -38,6 +38,10 @@ void UnderGenWorld3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_generate_on_ready", "enabled"), &UnderGenWorld3D::set_generate_on_ready);
     ClassDB::bind_method(D_METHOD("get_generate_on_ready"), &UnderGenWorld3D::get_generate_on_ready);
 
+    // Inspector button
+    ClassDB::bind_method(D_METHOD("set_trigger_generate", "value"), &UnderGenWorld3D::set_trigger_generate);
+    ClassDB::bind_method(D_METHOD("get_trigger_generate"), &UnderGenWorld3D::get_trigger_generate);
+
     // Debug Visualization
     ClassDB::bind_method(D_METHOD("set_debug_show_zone_labels", "enabled"), &UnderGenWorld3D::set_debug_show_zone_labels);
     ClassDB::bind_method(D_METHOD("get_debug_show_zone_labels"), &UnderGenWorld3D::get_debug_show_zone_labels);
@@ -66,6 +70,9 @@ void UnderGenWorld3D::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::INT, "seed"), "set_generation_seed", "get_generation_seed");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "voxel_size"), "set_voxel_size", "get_voxel_size");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_on_ready"), "set_generate_on_ready", "get_generate_on_ready");
+
+    // Inspector button — toggle on to trigger generation
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "Generate Level"), "set_trigger_generate", "get_trigger_generate");
 
     // Debug Visualization
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug_show_zone_labels"), "set_debug_show_zone_labels", "get_debug_show_zone_labels");
@@ -118,6 +125,19 @@ void UnderGenWorld3D::set_generate_on_ready(bool p_enabled) {
 
 bool UnderGenWorld3D::get_generate_on_ready() const {
     return generate_on_ready;
+}
+
+// ── Inspector "button" ─────────────────────────────────────────────────
+
+void UnderGenWorld3D::set_trigger_generate(bool p_val) {
+    if (p_val) {
+        generate();
+    }
+    _trigger_generate = false; // always reset — acts as a button, not a state
+}
+
+bool UnderGenWorld3D::get_trigger_generate() const {
+    return false; // never shows as checked
 }
 
 // ── Debug Visualization ────────────────────────────────────────────────

@@ -20,7 +20,6 @@
 #include <godot_cpp/classes/rendering_server.hpp>
 
 #include "density_grid.h"
-#include "level_density_grid.h"
 #include "mc_tables.h"
 
 namespace godot {

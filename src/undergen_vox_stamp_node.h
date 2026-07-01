@@ -7,6 +7,7 @@
 #include "ogt_vox.h"
 #include <godot_cpp/variant/dictionary.hpp>
 #include <map>
+#include <vector>
 
 namespace godot {
 

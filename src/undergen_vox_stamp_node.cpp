@@ -3,6 +3,7 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/math.hpp>
 
+#define OGT_VOX_IMPLEMENTATION
 #include "ogt_vox.h"
 
 namespace godot {

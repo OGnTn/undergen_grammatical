@@ -5,6 +5,8 @@
 #include <godot_cpp/classes/resource.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
+#include <vector>
+#include <string>
 
 namespace godot {
 
