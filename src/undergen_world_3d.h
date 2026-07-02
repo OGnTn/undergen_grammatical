@@ -9,6 +9,8 @@
 
 namespace godot {
 
+class UnderGenPointSet;
+
 class UnderGenWorld3D : public Node3D {
     GDCLASS(UnderGenWorld3D, Node3D);
 
@@ -20,6 +22,7 @@ private:
     float surface_threshold = 0.0f;
     bool generate_on_ready = false;
     bool spawn_on_generation_complete = true;
+    Array vox_spawns;
 
     // Inspector "button" — set to true triggers generation
     bool _trigger_generate = false;
@@ -68,6 +71,8 @@ public:
 
     void spawn_scenes(Node *parent_node = nullptr);
     void spawn_scenes_for_node(const String &node_name, Node *parent_node = nullptr);
+    Ref<UnderGenPointSet> get_point_set_from_node(const String &node_name) const;
+    Array get_vox_spawns() const;
 
     // Inspector "button" — set true to trigger generation
     void set_trigger_generate(bool p_val);

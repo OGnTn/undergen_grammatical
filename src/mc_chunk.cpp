@@ -130,16 +130,35 @@ void MCChunk::generate_mesh_from_density_grid() {
                     corner_values[i] = density_grid->get_cell(world_pos_base + corner_offsets[i], 1.0f);
                 }
 
-                // 2. Get Material ID from the corner with the lowest density (most open/carved)
-                int min_density_idx = 0;
-                float min_density = corner_values[0];
-                for (int i = 1; i < 8; ++i) {
-                    if (corner_values[i] < min_density) {
-                        min_density = corner_values[i];
-                        min_density_idx = i;
+                // 2. Get Material ID
+                int mat_idx = -1;
+                float max_solid_density = -99999.0f;
+                
+                // 1. Try to find a solid corner with a custom (non-zero) material (e.g. from Vox Stamping)
+                for (int i = 0; i < 8; ++i) {
+                    if (corner_values[i] > surface) {
+                        int corner_mat = _get_voxel_material_id(local_pos + corner_offsets[i]);
+                        if (corner_mat > 0) {
+                            if (corner_values[i] > max_solid_density) {
+                                max_solid_density = corner_values[i];
+                                mat_idx = corner_mat;
+                            }
+                        }
                     }
                 }
-                int mat_idx = _get_voxel_material_id(local_pos + corner_offsets[min_density_idx]);
+
+                // 2. Fall back to the corner with the lowest density (most open/carved) if no solid custom material was found
+                if (mat_idx == -1) {
+                    int min_density_idx = 0;
+                    float min_density = corner_values[0];
+                    for (int i = 1; i < 8; ++i) {
+                        if (corner_values[i] < min_density) {
+                            min_density = corner_values[i];
+                            min_density_idx = i;
+                        }
+                    }
+                    mat_idx = _get_voxel_material_id(local_pos + corner_offsets[min_density_idx]);
+                }
 
                 // 3. Determine Cube Index
                 int cube_index = 0;
@@ -546,16 +565,34 @@ Dictionary MCChunk::_march_cubes_multi_mat() {
                 }
 
                 // --- Material Logic ---
-                // Find the corner with the lowest density (most open/carved) to get the correct room material.
-                int min_density_idx = 0;
-                float min_density = corner_values[0];
-                for (int i = 1; i < 8; ++i) {
-                    if (corner_values[i] < min_density) {
-                        min_density = corner_values[i];
-                        min_density_idx = i;
+                int mat_idx = -1;
+                float max_solid_density = -99999.0f;
+                
+                // 1. Try to find a solid corner with a custom (non-zero) material (e.g. from Vox Stamping)
+                for (int i = 0; i < 8; ++i) {
+                    if (corner_values[i] > surface) {
+                        int corner_mat = _get_voxel_material_id(local_pos + corner_offsets[i]);
+                        if (corner_mat > 0) {
+                            if (corner_values[i] > max_solid_density) {
+                                max_solid_density = corner_values[i];
+                                mat_idx = corner_mat;
+                            }
+                        }
                     }
                 }
-                int mat_idx = _get_voxel_material_id(local_pos + corner_offsets[min_density_idx]);
+
+                // 2. Fall back to the corner with the lowest density (most open/carved) if no solid custom material was found
+                if (mat_idx == -1) {
+                    int min_density_idx = 0;
+                    float min_density = corner_values[0];
+                    for (int i = 1; i < 8; ++i) {
+                        if (corner_values[i] < min_density) {
+                            min_density = corner_values[i];
+                            min_density_idx = i;
+                        }
+                    }
+                    mat_idx = _get_voxel_material_id(local_pos + corner_offsets[min_density_idx]);
+                }
                 
                 // Get or create the surface data for this material
                 SurfaceData &current_surface = surfaces[mat_idx];

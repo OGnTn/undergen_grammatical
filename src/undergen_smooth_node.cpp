@@ -36,6 +36,7 @@ void UnderGenSmoothNode::_execute(const Dictionary &inputs, Dictionary &outputs)
 
     PackedFloat32Array data = grid->get_world_density_grid();
     float* grid_data = data.ptrw();
+    std::vector<float> original_density(grid_data, grid_data + total_size);
     std::vector<float> buffer(total_size);
     float* temp_data = buffer.data();
 
@@ -109,6 +110,48 @@ void UnderGenSmoothNode::_execute(const Dictionary &inputs, Dictionary &outputs)
         for (int x = 0; x < gsx; ++x) {
             temp_data[(0 * gsy + y) * gsx + x] = WORLD_SOLID_VALUE;
             temp_data[((gsz - 1) * gsy + y) * gsx + x] = WORLD_SOLID_VALUE;
+        }
+    }
+
+    // Revert voxels inside excluded rooms to their original values
+    Array rooms_arr = context.get("rooms", Array());
+    struct RoomBounds {
+        Vector3i min;
+        Vector3i max;
+    };
+    std::vector<RoomBounds> excluded_rooms;
+
+    for (int i = 0; i < rooms_arr.size(); ++i) {
+        Dictionary r_dict = rooms_arr[i];
+        if (r_dict.get("exclude_from_smoothing", false)) {
+            Vector3i pos = r_dict.get("position", Vector3i());
+            Vector3i size = r_dict.get("size", Vector3i());
+            RoomBounds b;
+            b.min = pos;
+            b.max = pos + size;
+            excluded_rooms.push_back(b);
+        }
+    }
+
+    if (!excluded_rooms.empty()) {
+        for (int z = 0; z < gsz; ++z) {
+            for (int y = 0; y < gsy; ++y) {
+                for (int x = 0; x < gsx; ++x) {
+                    bool is_excluded = false;
+                    for (const auto& r : excluded_rooms) {
+                        if (x >= r.min.x && x < r.max.x &&
+                            y >= r.min.y && y < r.max.y &&
+                            z >= r.min.z && z < r.max.z) {
+                            is_excluded = true;
+                            break;
+                        }
+                    }
+                    if (is_excluded) {
+                        size_t idx = (size_t)(z * gsy + y) * gsx + x;
+                        temp_data[idx] = original_density[idx];
+                    }
+                }
+            }
         }
     }
 

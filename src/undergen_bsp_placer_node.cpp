@@ -78,6 +78,7 @@ void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outpu
         r.id = node.get("id", "room");
         r.type = node.get("type", "generic");
         r.vox_path = node.get("vox_path", "");
+        r.exclude_from_smoothing = node.get("exclude_from_smoothing", false);
         
         Vector3i min_s = node.get("min_size", Vector3i(5, 5, 5));
         Vector3i max_s = node.get("max_size", Vector3i(10, 10, 10));
@@ -241,6 +242,7 @@ void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outpu
         r_dict["position"] = room.position;
         r_dict["size"] = room.size;
         r_dict["vox_path"] = room.vox_path;
+        r_dict["exclude_from_smoothing"] = room.exclude_from_smoothing;
         r_dict["center"] = room.center();
         placed_rooms_array.append(r_dict);
     }

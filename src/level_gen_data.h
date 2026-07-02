@@ -4,6 +4,7 @@
 #include <godot_cpp/variant/vector3i.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/array.hpp>
 
 namespace godot {
 
@@ -23,6 +24,8 @@ struct ResolvedRoom {
     
     // Vox Integration
     String vox_path;
+    Array connection_points;
+    bool exclude_from_smoothing = false;
 
     Vector3 center() const { return Vector3(position) + Vector3(size) / 2.0; }
 };

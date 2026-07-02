@@ -26,6 +26,8 @@
 #include "undergen_grammar_node.h"
 #include "undergen_material_stamper_node.h"
 #include "zone_material_entry.h"
+#include "vox_spawn_entry.h"
+#include "vox_material_entry.h"
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
@@ -68,6 +70,8 @@ void initialize_density_grid_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<UnderGenGrammarNode>();
     ClassDB::register_class<UnderGenMaterialStamperNode>();
     ClassDB::register_class<ZoneMaterialEntry>();
+    ClassDB::register_class<VoxSpawnEntry>();
+    ClassDB::register_class<VoxMaterialEntry>();
 }
 
 void uninitialize_density_grid_module(ModuleInitializationLevel p_level) {

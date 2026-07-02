@@ -34,6 +34,8 @@ void LevelGrammarRoomTypeSpec::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_max_size"), &LevelGrammarRoomTypeSpec::get_max_size);
     ClassDB::bind_method(D_METHOD("set_vox_path", "vox_path"), &LevelGrammarRoomTypeSpec::set_vox_path);
     ClassDB::bind_method(D_METHOD("get_vox_path"), &LevelGrammarRoomTypeSpec::get_vox_path);
+    ClassDB::bind_method(D_METHOD("set_exclude_from_smoothing", "exclude"), &LevelGrammarRoomTypeSpec::set_exclude_from_smoothing);
+    ClassDB::bind_method(D_METHOD("get_exclude_from_smoothing"), &LevelGrammarRoomTypeSpec::get_exclude_from_smoothing);
 
     ClassDB::bind_method(D_METHOD("to_dictionary"), &LevelGrammarRoomTypeSpec::to_dictionary);
     ClassDB::bind_method(D_METHOD("from_dictionary", "d"), &LevelGrammarRoomTypeSpec::from_dictionary);
@@ -44,6 +46,7 @@ void LevelGrammarRoomTypeSpec::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::VECTOR3I, "min_size"), "set_min_size", "get_min_size");
     ADD_PROPERTY(PropertyInfo(Variant::VECTOR3I, "max_size"), "set_max_size", "get_max_size");
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "vox_path", PROPERTY_HINT_FILE, "*.vox,*.tres,*.res"), "set_vox_path", "get_vox_path");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "exclude_from_smoothing"), "set_exclude_from_smoothing", "get_exclude_from_smoothing");
 }
 
 // ── Accessors ─────────────────────────────────────────────────────────────
@@ -60,6 +63,8 @@ void LevelGrammarRoomTypeSpec::set_max_size(const Vector3i &p_size) { max_size =
 Vector3i LevelGrammarRoomTypeSpec::get_max_size() const { return max_size; }
 void LevelGrammarRoomTypeSpec::set_vox_path(const String &p_path) { vox_path = p_path; }
 String LevelGrammarRoomTypeSpec::get_vox_path() const { return vox_path; }
+void LevelGrammarRoomTypeSpec::set_exclude_from_smoothing(bool p_exclude) { exclude_from_smoothing = p_exclude; }
+bool LevelGrammarRoomTypeSpec::get_exclude_from_smoothing() const { return exclude_from_smoothing; }
 
 // ── Helper: safely extract Vector3i from a Variant ───────────────────────
 // JSON arrays like [4,3,4] come through as Godot Array, not Vector3i.
@@ -96,6 +101,8 @@ Dictionary LevelGrammarRoomTypeSpec::to_dictionary() const {
     d["max_size"] = max_size;
     if (!vox_path.is_empty())
         d["vox_path"] = vox_path;
+    if (exclude_from_smoothing)
+        d["exclude_from_smoothing"] = exclude_from_smoothing;
     return d;
 }
 
@@ -106,6 +113,7 @@ void LevelGrammarRoomTypeSpec::from_dictionary(const Dictionary &d) {
     if (d.has("min_size")) set_min_size(_variant_to_vector3i(d["min_size"], Vector3i(5, 3, 5)));
     if (d.has("max_size")) set_max_size(_variant_to_vector3i(d["max_size"], Vector3i(10, 6, 10)));
     if (d.has("vox_path")) set_vox_path(d["vox_path"]);
+    if (d.has("exclude_from_smoothing")) set_exclude_from_smoothing(d["exclude_from_smoothing"]);
 }
 
 

@@ -44,6 +44,7 @@ public:
     Dictionary get_point_attributes(int idx) const;
 
     void clear();
+    Array get_points() const;
 
     // Direct access for C++ nodes
     std::vector<PCGPoint>& get_points_raw() { return points; }

@@ -24,6 +24,7 @@ private:
     Vector3i min_size = Vector3i(5, 3, 5);
     Vector3i max_size = Vector3i(10, 6, 10);
     String vox_path;
+    bool exclude_from_smoothing = false;
 
 protected:
     static void _bind_methods();
@@ -45,6 +46,8 @@ public:
     Vector3i get_max_size() const;
     void set_vox_path(const String &p_path);
     String get_vox_path() const;
+    void set_exclude_from_smoothing(bool p_exclude);
+    bool get_exclude_from_smoothing() const;
 
     // Serialization
     Dictionary to_dictionary() const;

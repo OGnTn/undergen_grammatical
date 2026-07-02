@@ -18,6 +18,7 @@ void UnderGenPointSet::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_point_attributes", "idx"), &UnderGenPointSet::get_point_attributes);
 
     ClassDB::bind_method(D_METHOD("clear"), &UnderGenPointSet::clear);
+    ClassDB::bind_method(D_METHOD("get_points"), &UnderGenPointSet::get_points);
 }
 
 void UnderGenPointSet::add_point(const Transform3D &transform, float density, const AABB &bounds, const Color &color, const Dictionary &attributes) {
@@ -87,6 +88,20 @@ Dictionary UnderGenPointSet::get_point_attributes(int idx) const {
 
 void UnderGenPointSet::clear() {
     points.clear();
+}
+
+Array UnderGenPointSet::get_points() const {
+    Array arr;
+    for (const auto &p : points) {
+        Dictionary d;
+        d["transform"] = p.transform;
+        d["density"] = p.density;
+        d["bounds"] = p.bounds;
+        d["color"] = p.color;
+        d["attributes"] = p.attributes;
+        arr.append(d);
+    }
+    return arr;
 }
 
 } // namespace godot

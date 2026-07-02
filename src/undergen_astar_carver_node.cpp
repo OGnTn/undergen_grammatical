@@ -63,6 +63,7 @@ void UnderGenAStarCarverNode::_execute(const Dictionary &inputs, Dictionary &out
         r.position = r_dict.get("position", Vector3i());
         r.size = r_dict.get("size", Vector3i());
         r.vox_path = r_dict.get("vox_path", "");
+        r.connection_points = r_dict.get("connection_points", Array());
         rooms.push_back(r);
         id_to_index[r.id] = i;
     }

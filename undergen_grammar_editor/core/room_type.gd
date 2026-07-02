@@ -13,3 +13,4 @@ class_name RoomType extends Resource
 
 @export_group("Asset")
 @export var vox_path: String = ""
+@export var exclude_from_smoothing: bool = false

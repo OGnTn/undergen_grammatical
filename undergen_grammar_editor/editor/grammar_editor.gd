@@ -334,6 +334,7 @@ func _do_import_json(path: String):
 		room.min_size = rt.min_size
 		room.max_size = rt.max_size
 		room.vox_path = rt.vox_path
+		room.exclude_from_smoothing = rt.exclude_from_smoothing
 		res.room_types.append(room)
 
 	for rule in spec.rules:
@@ -407,6 +408,8 @@ func _grammar_to_dictionary() -> Dictionary:
 		r["max_size"] = [rt.max_size.x, rt.max_size.y, rt.max_size.z]
 		if not rt.vox_path.is_empty():
 			r["vox_path"] = rt.vox_path
+		if rt.exclude_from_smoothing:
+			r["exclude_from_smoothing"] = rt.exclude_from_smoothing
 		rt_arr.append(r)
 	d["room_types"] = rt_arr
 
@@ -581,6 +584,12 @@ func _load_pal_inspector(rt: RoomType):
 	browse.pressed.connect(func(): _open_vox_picker(vox_edit, rt))
 	vox_row.add_child(browse)
 	_pal_insp_box.add_child(vox_row)
+
+	var smooth_cb = CheckBox.new()
+	smooth_cb.text = "Exclude from smoothing"
+	smooth_cb.button_pressed = rt.exclude_from_smoothing
+	smooth_cb.toggled.connect(func(pressed): rt.exclude_from_smoothing = pressed)
+	_pal_insp_box.add_child(smooth_cb)
 
 
 func _open_vox_picker(target_edit: LineEdit, rt: RoomType):

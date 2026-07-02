@@ -45,7 +45,19 @@ void UnderGenPipeline::_bind_methods() {
 }
 
 void UnderGenPipeline::set_nodes(const Array &p_nodes) {
+    for (int i = 0; i < nodes.size(); ++i) {
+        Ref<UnderGenNode> old_node = nodes[i];
+        if (old_node.is_valid() && old_node->is_connected("changed", Callable(this, "emit_changed"))) {
+            old_node->disconnect("changed", Callable(this, "emit_changed"));
+        }
+    }
     nodes = p_nodes;
+    for (int i = 0; i < nodes.size(); ++i) {
+        Ref<UnderGenNode> new_node = nodes[i];
+        if (new_node.is_valid()) {
+            new_node->connect("changed", Callable(this, "emit_changed"));
+        }
+    }
 }
 
 Array UnderGenPipeline::get_nodes() const {
@@ -55,12 +67,16 @@ Array UnderGenPipeline::get_nodes() const {
 void UnderGenPipeline::add_pipeline_node(const Ref<UnderGenNode> &p_node) {
     if (p_node.is_valid() && !nodes.has(p_node)) {
         nodes.append(p_node);
+        p_node->connect("changed", Callable(this, "emit_changed"));
     }
 }
 
 void UnderGenPipeline::remove_pipeline_node(const Ref<UnderGenNode> &p_node) {
     if (p_node.is_valid()) {
         nodes.erase(p_node);
+        if (p_node->is_connected("changed", Callable(this, "emit_changed"))) {
+            p_node->disconnect("changed", Callable(this, "emit_changed"));
+        }
         // Also remove any connections involving this node
         String node_name = p_node->get_name();
         Array filtered_conn;
@@ -257,7 +273,8 @@ Dictionary UnderGenPipeline::to_dictionary() const {
             // Skip internal / metadata properties
             if (pname.begins_with("_") || pname == "name" || pname == "editor_position"
                 || pname == "resource_local_to_scene" || pname == "script"
-                || pname == "resource_path" || pname == "resource_name")
+                || pname == "resource_path" || pname == "resource_name"
+                || pname == "vox_spawn_entries" || pname == "vox_material_entries")
                 continue;
 
             uint32_t usage = pinfo.get("usage", 0);

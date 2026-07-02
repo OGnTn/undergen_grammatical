@@ -4,6 +4,8 @@
 #include "undergen_grammar_node.h"
 #include "undergen_bsp_placer_node.h"
 #include "density_grid.h"
+#include "undergen_point_set.h"
+#include "undergen_vox_stamp_node.h"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/classes/label3d.hpp>
 
@@ -46,6 +48,8 @@ void UnderGenWorld3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_spawn_on_generation_complete"), &UnderGenWorld3D::get_spawn_on_generation_complete);
     ClassDB::bind_method(D_METHOD("spawn_scenes", "parent_node"), &UnderGenWorld3D::spawn_scenes, DEFVAL(nullptr));
     ClassDB::bind_method(D_METHOD("spawn_scenes_for_node", "node_name", "parent_node"), &UnderGenWorld3D::spawn_scenes_for_node, DEFVAL(nullptr));
+    ClassDB::bind_method(D_METHOD("get_point_set_from_node", "node_name"), &UnderGenWorld3D::get_point_set_from_node);
+    ClassDB::bind_method(D_METHOD("get_vox_spawns"), &UnderGenWorld3D::get_vox_spawns);
 
     // Inspector button
     ClassDB::bind_method(D_METHOD("set_trigger_generate", "value"), &UnderGenWorld3D::set_trigger_generate);
@@ -324,7 +328,26 @@ void UnderGenWorld3D::_on_meshing_completed(const Dictionary &outputs) {
     // Spawn debug zone labels if enabled
     if (debug_show_zone_labels) {
         _spawn_debug_zone_labels(_last_context);
-        _last_context.clear(); // free memory
+        _last_context = Dictionary(); // Release reference safely without clearing shared dictionary data
+    }
+
+    // Gather all vox spawns from any VoxStamper nodes
+    vox_spawns.clear();
+    if (pipeline.is_valid()) {
+        Array nodes = pipeline->get_nodes();
+        for (int i = 0; i < nodes.size(); ++i) {
+            Ref<UnderGenNode> node = nodes[i];
+            if (node.is_null()) continue;
+            UnderGenVoxStampNode* stamper = Object::cast_to<UnderGenVoxStampNode>(node.ptr());
+            if (stamper) {
+                Dictionary node_outputs = pipeline->get_node_outputs(stamper->get_name());
+                Dictionary context = node_outputs.get(0, Dictionary());
+                if (context.has("vox_spawns")) {
+                    Array spawns = context["vox_spawns"];
+                    vox_spawns.append_array(spawns);
+                }
+            }
+        }
     }
     
     // Execute all Spawner nodes on the main thread if auto-spawn is enabled
@@ -514,6 +537,28 @@ void UnderGenWorld3D::spawn_scenes_for_node(const String &node_name, Node *paren
         }
         UtilityFunctions::printerr("UnderGenWorld3D::spawn_scenes_for_node: Node '", node_name, "' not found in pipeline.");
     }
+}
+
+Ref<UnderGenPointSet> UnderGenWorld3D::get_point_set_from_node(const String &node_name) const {
+    if (pipeline.is_null()) {
+        return Ref<UnderGenPointSet>();
+    }
+    Dictionary outputs = pipeline->get_node_outputs(node_name);
+    Array keys = outputs.keys();
+    for (int i = 0; i < keys.size(); i++) {
+        Variant val = outputs[keys[i]];
+        if (val.get_type() == Variant::OBJECT) {
+            Ref<UnderGenPointSet> ps = val;
+            if (ps.is_valid()) {
+                return ps;
+            }
+        }
+    }
+    return Ref<UnderGenPointSet>();
+}
+
+Array UnderGenWorld3D::get_vox_spawns() const {
+    return vox_spawns;
 }
 
 } // namespace godot

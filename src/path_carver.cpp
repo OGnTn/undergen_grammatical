@@ -176,51 +176,89 @@ void PathCarver::create_paths_from_edges(DensityGrid* grid, RandomNumberGenerato
         
         Vector3 start_point;
         Vector3 end_point;
+        bool start_set = false;
+        bool end_set = false;
 
-        if (connect_from_ground_level) {
-            Vector3i rA_start = rA.position;
-            Vector3i rA_end = rA.position + rA.size;
-            Vector3i rB_start = rB.position;
-            Vector3i rB_end = rB.position + rB.size;
-
-            Vector3 rA_center = rA.center();
-            Vector3 rB_center = rB.center();
-            Vector3 direction_vector = rB_center - rA_center;
-
-            // Start Point Calculation
-            int start_y = Math::max(rA_start.y, 1);
-            int start_x, start_z;
-            
-            if (abs(direction_vector.x) > abs(direction_vector.z)) {
-                // Moving primarily along X
-                start_z = rng->randi_range(rA_start.z, rA_end.z - 1);
-                start_x = (direction_vector.x > 0) ? rA_end.x - 1 : rA_start.x;
-            } else {
-                // Moving primarily along Z
-                start_x = rng->randi_range(rA_start.x, rA_end.x - 1);
-                start_z = (direction_vector.z > 0) ? rA_end.z - 1 : rA_start.z;
+        // Custom Connection Point Resolution
+        if (rA.connection_points.size() > 0) {
+            Vector3 target = rB.center();
+            Vector3 closest_point = rA.connection_points[0];
+            float min_dist = closest_point.distance_to(target);
+            for (int j = 1; j < rA.connection_points.size(); ++j) {
+                Vector3 pt = rA.connection_points[j];
+                float dist = pt.distance_to(target);
+                if (dist < min_dist) {
+                    min_dist = dist;
+                    closest_point = pt;
+                }
             }
-            start_point = Vector3(start_x, start_y, start_z);
+            start_point = closest_point;
+            start_set = true;
+        }
 
-            // End Point Calculation
-            int end_y = Math::max(rB_start.y, 1);
-            int end_x, end_z;
-            
-            if (abs(direction_vector.x) > abs(direction_vector.z)) {
-                // Moving primarily along X
-                end_z = rng->randi_range(rB_start.z, rB_end.z - 1);
-                // If moving +X, we enter from Left (start_x). If moving -X, we enter from Right (end_x-1)
-                end_x = (direction_vector.x > 0) ? rB_start.x : rB_end.x - 1;
-            } else {
-                // Moving primarily along Z
-                end_x = rng->randi_range(rB_start.x, rB_end.x - 1);
-                end_z = (direction_vector.z > 0) ? rB_start.z : rB_end.z - 1;
+        if (rB.connection_points.size() > 0) {
+            Vector3 target = start_set ? start_point : rA.center();
+            Vector3 closest_point = rB.connection_points[0];
+            float min_dist = closest_point.distance_to(target);
+            for (int j = 1; j < rB.connection_points.size(); ++j) {
+                Vector3 pt = rB.connection_points[j];
+                float dist = pt.distance_to(target);
+                if (dist < min_dist) {
+                    min_dist = dist;
+                    closest_point = pt;
+                }
             }
-            end_point = Vector3(end_x, end_y, end_z);
+            end_point = closest_point;
+            end_set = true;
+        }
 
-        } else {
-            start_point = rA.center();
-            end_point = rB.center();
+        // Fallbacks if connection points aren't defined
+        if (!start_set || !end_set) {
+            Vector3 start_fallback = start_point;
+            Vector3 end_fallback = end_point;
+
+            if (connect_from_ground_level) {
+                Vector3i rA_start = rA.position;
+                Vector3i rA_end = rA.position + rA.size;
+                Vector3i rB_start = rB.position;
+                Vector3i rB_end = rB.position + rB.size;
+
+                Vector3 rA_center = rA.center();
+                Vector3 rB_center = rB.center();
+                Vector3 direction_vector = rB_center - rA_center;
+
+                if (!start_set) {
+                    int start_y = Math::max(rA_start.y, 1);
+                    int start_x, start_z;
+                    if (abs(direction_vector.x) > abs(direction_vector.z)) {
+                        start_z = rng->randi_range(rA_start.z, rA_end.z - 1);
+                        start_x = (direction_vector.x > 0) ? rA_end.x - 1 : rA_start.x;
+                    } else {
+                        start_x = rng->randi_range(rA_start.x, rA_end.x - 1);
+                        start_z = (direction_vector.z > 0) ? rA_end.z - 1 : rA_start.z;
+                    }
+                    start_fallback = Vector3(start_x, start_y, start_z);
+                }
+
+                if (!end_set) {
+                    int end_y = Math::max(rB_start.y, 1);
+                    int end_x, end_z;
+                    if (abs(direction_vector.x) > abs(direction_vector.z)) {
+                        end_z = rng->randi_range(rB_start.z, rB_end.z - 1);
+                        end_x = (direction_vector.x > 0) ? rB_start.x : rB_end.x - 1;
+                    } else {
+                        end_x = rng->randi_range(rB_start.x, rB_end.x - 1);
+                        end_z = (direction_vector.z > 0) ? rB_start.z : rB_end.z - 1;
+                    }
+                    end_fallback = Vector3(end_x, end_y, end_z);
+                }
+            } else {
+                if (!start_set) start_fallback = rA.center();
+                if (!end_set) end_fallback = rB.center();
+            }
+
+            if (!start_set) start_point = start_fallback;
+            if (!end_set) end_point = end_fallback;
         }
 
         if(dungeon_mode) {
