@@ -158,6 +158,38 @@ PackedFloat32Array DensityGrid::get_world_density_grid() const {
     return world_density_grid;
 }
 
+PackedFloat32Array &DensityGrid::get_density_data_rw() {
+    return world_density_grid;
+}
+
+const PackedFloat32Array &DensityGrid::get_density_data() const {
+    return world_density_grid;
+}
+
+PackedByteArray &DensityGrid::get_material_data_rw() {
+    return world_material_grid;
+}
+
+const PackedByteArray &DensityGrid::get_material_data() const {
+    return world_material_grid;
+}
+
+PackedInt32Array &DensityGrid::get_zone_data_rw() {
+    return world_zone_grid;
+}
+
+const PackedInt32Array &DensityGrid::get_zone_data() const {
+    return world_zone_grid;
+}
+
+int64_t DensityGrid::get_total_cell_count() const {
+    return (int64_t)grid_size_x * grid_size_y * grid_size_z;
+}
+
+int DensityGrid::get_index_unchecked(int x, int y, int z) const {
+    return x + grid_size_x * (y + grid_size_y * z);
+}
+
 void DensityGrid::set_material_id(const Vector3i &pos, int material_index) {
     int index = get_index(pos);
     if (index != -1 && index < world_material_grid.size()) {
@@ -225,6 +257,10 @@ String DensityGrid::get_zone_name_by_id(int zone_id) const {
         return zone_id_map[zone_id];
     }
     return "";
+}
+
+int DensityGrid::get_zone_count() const {
+    return (int)zone_id_map.size();
 }
 
 

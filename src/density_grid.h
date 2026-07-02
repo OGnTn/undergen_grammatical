@@ -3,7 +3,9 @@
 #define DENSITY_GRID_H
 
 #include <godot_cpp/classes/resource.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
+#include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
 #include <vector>
 #include <string>
@@ -42,6 +44,16 @@ public:
     void set_world_density_grid(const PackedFloat32Array &p_grid);
     PackedFloat32Array get_world_density_grid() const;
 
+    // C++ hot-path accessors. These are intentionally not bound to Godot.
+    PackedFloat32Array &get_density_data_rw();
+    const PackedFloat32Array &get_density_data() const;
+    PackedByteArray &get_material_data_rw();
+    const PackedByteArray &get_material_data() const;
+    PackedInt32Array &get_zone_data_rw();
+    const PackedInt32Array &get_zone_data() const;
+    int64_t get_total_cell_count() const;
+    int get_index_unchecked(int x, int y, int z) const;
+
     void set_grid_size_x(int p_x);
     int get_grid_size_x() const;
 
@@ -64,6 +76,7 @@ public:
     void set_zone_at(const Vector3i &pos, int zone_id);
     int get_zone_at(const Vector3i &pos) const;
     String get_zone_name_by_id(int zone_id) const;
+    int get_zone_count() const;
     int register_zone_name(String name);
 };
 

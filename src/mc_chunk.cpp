@@ -7,6 +7,7 @@
 #include <godot_cpp/classes/node.hpp> // For notifications like NOTIFICATION_READY
 #include <string> // For std::string used in cache key
 #include <map>    // For std::map (alternative to Dictionary for vertex cache)
+#include <unordered_map>
 #include <godot_cpp/classes/static_body3d.hpp> // Added for collision body
 #include <godot_cpp/classes/array_mesh.hpp> // Added for ArrayMesh type
 #include <godot_cpp/classes/occluder_instance3d.hpp> // For occluder node
@@ -109,9 +110,41 @@ void MCChunk::generate_mesh_from_density_grid() {
     std::vector<int> master_triangle_materials; // Stores the material ID for each triangle
     
     // Vertex Cache for the master mesh (Edge Key -> Master Index)
-    std::map<String, int> master_vertex_cache;
+    std::unordered_map<uint64_t, int> master_vertex_cache;
+    master_vertex_cache.reserve((size_t)chunk_size * chunk_size * chunk_size);
 
     float surface = density_grid->get_surface_threshold();
+    int grid_dim_x = density_grid->get_grid_size_x();
+    int grid_dim_y = density_grid->get_grid_size_y();
+    int grid_dim_z = density_grid->get_grid_size_z();
+    const PackedFloat32Array &density_array = density_grid->get_density_data();
+    const PackedByteArray &material_array = density_grid->get_material_data();
+    const float *density_data = density_array.ptr();
+    const uint8_t *material_data = material_array.ptr();
+
+    auto sample_density = [&](int wx, int wy, int wz) -> float {
+        if (wx < 0 || wx >= grid_dim_x || wy < 0 || wy >= grid_dim_y || wz < 0 || wz >= grid_dim_z) {
+            return 1.0f;
+        }
+        int idx = wx + grid_dim_x * (wy + grid_dim_y * wz);
+        return density_data[idx];
+    };
+
+    auto sample_material = [&](int wx, int wy, int wz) -> int {
+        if (wx < 0 || wx >= grid_dim_x || wy < 0 || wy >= grid_dim_y || wz < 0 || wz >= grid_dim_z) {
+            return 0;
+        }
+        int idx = wx + grid_dim_x * (wy + grid_dim_y * wz);
+        return (int)material_data[idx];
+    };
+
+    auto make_edge_key = [](int wx, int wy, int wz, int edge_index) -> uint64_t {
+        return (((uint64_t)wx & 0xFFFFF) << 44) |
+               (((uint64_t)wy & 0xFFFFF) << 24) |
+               (((uint64_t)wz & 0xFFFFF) << 4) |
+               ((uint64_t)edge_index & 0xF);
+    };
+
     const Vector3i corner_offsets[8] = {
         Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(1, 1, 0), Vector3i(0, 1, 0),
         Vector3i(0, 0, 1), Vector3i(1, 0, 1), Vector3i(1, 1, 1), Vector3i(0, 1, 1)
@@ -127,7 +160,8 @@ void MCChunk::generate_mesh_from_density_grid() {
                 // 1. Sample Corners
                 float corner_values[8];
                 for (int i = 0; i < 8; ++i) {
-                    corner_values[i] = density_grid->get_cell(world_pos_base + corner_offsets[i], 1.0f);
+                    Vector3i corner_pos = world_pos_base + corner_offsets[i];
+                    corner_values[i] = sample_density(corner_pos.x, corner_pos.y, corner_pos.z);
                 }
 
                 // 2. Get Material ID
@@ -137,7 +171,8 @@ void MCChunk::generate_mesh_from_density_grid() {
                 // 1. Try to find a solid corner with a custom (non-zero) material (e.g. from Vox Stamping)
                 for (int i = 0; i < 8; ++i) {
                     if (corner_values[i] > surface) {
-                        int corner_mat = _get_voxel_material_id(local_pos + corner_offsets[i]);
+                        Vector3i corner_pos = world_pos_base + corner_offsets[i];
+                        int corner_mat = sample_material(corner_pos.x, corner_pos.y, corner_pos.z);
                         if (corner_mat > 0) {
                             if (corner_values[i] > max_solid_density) {
                                 max_solid_density = corner_values[i];
@@ -157,7 +192,8 @@ void MCChunk::generate_mesh_from_density_grid() {
                             min_density_idx = i;
                         }
                     }
-                    mat_idx = _get_voxel_material_id(local_pos + corner_offsets[min_density_idx]);
+                    Vector3i corner_pos = world_pos_base + corner_offsets[min_density_idx];
+                    mat_idx = sample_material(corner_pos.x, corner_pos.y, corner_pos.z);
                 }
 
                 // 3. Determine Cube Index
@@ -184,10 +220,7 @@ void MCChunk::generate_mesh_from_density_grid() {
                         int edge_index = tri_table_row[i + j];
                         
                         // Create unique key for this specific edge in world space
-                        String edge_key = String::num_int64(world_pos_base.x) + "_" +
-                                          String::num_int64(world_pos_base.y) + "_" +
-                                          String::num_int64(world_pos_base.z) + "_" +
-                                          String::num_int64(edge_index);
+                        uint64_t edge_key = make_edge_key(world_pos_base.x, world_pos_base.y, world_pos_base.z, edge_index);
 
                         // Check Cache
                         auto cache_it = master_vertex_cache.find(edge_key);

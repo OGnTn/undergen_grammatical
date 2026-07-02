@@ -1,5 +1,6 @@
 #include "undergen_smooth_node.h"
 #include "density_grid.h"
+#include "grid_parallel.h"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <vector>
 #include <cstring>
@@ -31,19 +32,44 @@ void UnderGenSmoothNode::_execute(const Dictionary &inputs, Dictionary &outputs)
     int gsx = grid->get_grid_size_x();
     int gsy = grid->get_grid_size_y();
     int gsz = grid->get_grid_size_z();
-    size_t total_size = (size_t)gsx * gsy * gsz;
+    size_t total_size = (size_t)grid->get_total_cell_count();
     if (total_size == 0) { outputs[0] = context; return; }
 
-    PackedFloat32Array data = grid->get_world_density_grid();
+    PackedFloat32Array &data = grid->get_density_data_rw();
+    if ((size_t)data.size() < total_size) { outputs[0] = context; return; }
+
+    Array rooms_arr = context.get("rooms", Array());
+    struct RoomBounds {
+        Vector3i min;
+        Vector3i max;
+    };
+    std::vector<RoomBounds> excluded_rooms;
+
+    for (int i = 0; i < rooms_arr.size(); ++i) {
+        Dictionary r_dict = rooms_arr[i];
+        if (r_dict.get("exclude_from_smoothing", false)) {
+            Vector3i pos = r_dict.get("position", Vector3i());
+            Vector3i size = r_dict.get("size", Vector3i());
+            RoomBounds b;
+            b.min = pos;
+            b.max = pos + size;
+            excluded_rooms.push_back(b);
+        }
+    }
+
     float* grid_data = data.ptrw();
-    std::vector<float> original_density(grid_data, grid_data + total_size);
+    std::vector<float> original_density;
+    if (!excluded_rooms.empty()) {
+        original_density.assign(grid_data, grid_data + total_size);
+    }
     std::vector<float> buffer(total_size);
     float* temp_data = buffer.data();
 
     int R = smoothing_strength;
 
     // Pass 1: Blur X
-    for (int z = 0; z < gsz; ++z) {
+    parallel_for_z(gsz, (int64_t)total_size, [&](int, int z_begin, int z_end) {
+    for (int z = z_begin; z < z_end; ++z) {
         for (int y = 0; y < gsy; ++y) {
             int row_offset = (z * gsy + y) * gsx;
             for (int x = 0; x < gsx; ++x) {
@@ -58,12 +84,14 @@ void UnderGenSmoothNode::_execute(const Dictionary &inputs, Dictionary &outputs)
             }
         }
     }
+    });
 
     // Pass 2: Blur Y
-    for (int z = 0; z < gsz; ++z) {
+    parallel_for_z(gsz, (int64_t)total_size, [&](int, int z_begin, int z_end) {
+    for (int z = z_begin; z < z_end; ++z) {
         int slice_offset = z * gsy * gsx;
-        for (int x = 0; x < gsx; ++x) {
-            for (int y = 0; y < gsy; ++y) {
+        for (int y = 0; y < gsy; ++y) {
+            for (int x = 0; x < gsx; ++x) {
                 float sum = 0.0f;
                 int count = 0;
                 for (int k = -R; k <= R; ++k) {
@@ -75,24 +103,29 @@ void UnderGenSmoothNode::_execute(const Dictionary &inputs, Dictionary &outputs)
             }
         }
     }
+    });
 
     // Pass 3: Blur Z
     int stride_z = gsx * gsy;
-    for (int y = 0; y < gsy; ++y) {
-        for (int x = 0; x < gsx; ++x) {
-            int col_offset = y * gsx + x;
-            for (int z = 0; z < gsz; ++z) {
+    parallel_for_z(gsz, (int64_t)total_size, [&](int, int z_begin, int z_end) {
+    for (int z = z_begin; z < z_end; ++z) {
+        int slice_offset = z * stride_z;
+        for (int y = 0; y < gsy; ++y) {
+            int row_offset = slice_offset + y * gsx;
+            for (int x = 0; x < gsx; ++x) {
                 float sum = 0.0f;
                 int count = 0;
                 for (int k = -R; k <= R; ++k) {
                     int nz = z + k;
-                    sum += (nz >= 0 && nz < gsz) ? grid_data[nz * stride_z + col_offset] : WORLD_SOLID_VALUE;
+                    sum += (nz >= 0 && nz < gsz) ? grid_data[nz * stride_z + y * gsx + x] : WORLD_SOLID_VALUE;
                     count++;
                 }
-                temp_data[z * stride_z + col_offset] = (count > 0) ? sum / count : grid_data[z * stride_z + col_offset];
+                temp_data[row_offset + x] = (count > 0) ? sum / count : grid_data[row_offset + x];
             }
         }
     }
+    });
+
     // Enforce solid boundary casing to prevent holes in the terrain after smoothing
     for (int z = 0; z < gsz; ++z) {
         for (int y = 0; y < gsy; ++y) {
@@ -114,27 +147,9 @@ void UnderGenSmoothNode::_execute(const Dictionary &inputs, Dictionary &outputs)
     }
 
     // Revert voxels inside excluded rooms to their original values
-    Array rooms_arr = context.get("rooms", Array());
-    struct RoomBounds {
-        Vector3i min;
-        Vector3i max;
-    };
-    std::vector<RoomBounds> excluded_rooms;
-
-    for (int i = 0; i < rooms_arr.size(); ++i) {
-        Dictionary r_dict = rooms_arr[i];
-        if (r_dict.get("exclude_from_smoothing", false)) {
-            Vector3i pos = r_dict.get("position", Vector3i());
-            Vector3i size = r_dict.get("size", Vector3i());
-            RoomBounds b;
-            b.min = pos;
-            b.max = pos + size;
-            excluded_rooms.push_back(b);
-        }
-    }
-
     if (!excluded_rooms.empty()) {
-        for (int z = 0; z < gsz; ++z) {
+        parallel_for_z(gsz, (int64_t)total_size, [&](int, int z_begin, int z_end) {
+        for (int z = z_begin; z < z_end; ++z) {
             for (int y = 0; y < gsy; ++y) {
                 for (int x = 0; x < gsx; ++x) {
                     bool is_excluded = false;
@@ -153,12 +168,10 @@ void UnderGenSmoothNode::_execute(const Dictionary &inputs, Dictionary &outputs)
                 }
             }
         }
+        });
     }
 
     memcpy(grid_data, temp_data, total_size * sizeof(float));
-
-    // Write back
-    grid->set_world_density_grid(data);
 
     outputs[0] = context;
 }
