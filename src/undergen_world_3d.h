@@ -17,6 +17,7 @@ private:
     Ref<Resource> grammar_override;   // if set, supersedes the pipeline's Grammar Expander node
     int64_t generation_seed = 12345;
     float voxel_size = 1.0f;
+    float surface_threshold = 0.0f;
     bool generate_on_ready = false;
 
     // Inspector "button" — set to true triggers generation
@@ -54,6 +55,9 @@ public:
 
     void set_voxel_size(float p_size);
     float get_voxel_size() const;
+
+    void set_surface_threshold(float p_threshold);
+    float get_surface_threshold() const;
 
     void set_generate_on_ready(bool p_enabled);
     bool get_generate_on_ready() const;

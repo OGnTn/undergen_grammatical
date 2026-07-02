@@ -19,10 +19,13 @@ void UnderGenBSPPlacerNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_grid_size_y"), &UnderGenBSPPlacerNode::get_grid_size_y);
     ClassDB::bind_method(D_METHOD("set_grid_size_z", "grid_size_z"), &UnderGenBSPPlacerNode::set_grid_size_z);
     ClassDB::bind_method(D_METHOD("get_grid_size_z"), &UnderGenBSPPlacerNode::get_grid_size_z);
+    ClassDB::bind_method(D_METHOD("set_surface_threshold", "threshold"), &UnderGenBSPPlacerNode::set_surface_threshold);
+    ClassDB::bind_method(D_METHOD("get_surface_threshold"), &UnderGenBSPPlacerNode::get_surface_threshold);
 
     ADD_PROPERTY(PropertyInfo(Variant::INT, "grid_size_x"), "set_grid_size_x", "get_grid_size_x");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "grid_size_y"), "set_grid_size_y", "get_grid_size_y");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "grid_size_z"), "set_grid_size_z", "get_grid_size_z");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "surface_threshold"), "set_surface_threshold", "get_surface_threshold");
 }
 
 void UnderGenBSPPlacerNode::set_grid_size_x(int p_x) { grid_size_x = p_x; }
@@ -31,6 +34,8 @@ void UnderGenBSPPlacerNode::set_grid_size_y(int p_y) { grid_size_y = p_y; }
 int UnderGenBSPPlacerNode::get_grid_size_y() const { return grid_size_y; }
 void UnderGenBSPPlacerNode::set_grid_size_z(int p_z) { grid_size_z = p_z; }
 int UnderGenBSPPlacerNode::get_grid_size_z() const { return grid_size_z; }
+void UnderGenBSPPlacerNode::set_surface_threshold(float p_threshold) { surface_threshold = p_threshold; }
+float UnderGenBSPPlacerNode::get_surface_threshold() const { return surface_threshold; }
 
 void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outputs) {
     // Port 0: Seed (int)
@@ -44,6 +49,7 @@ void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outpu
     Ref<DensityGrid> grid;
     grid.instantiate();
     grid->initialize_grid(grid_size_x, grid_size_y, grid_size_z, 1.0f); // Default solid
+    grid->set_surface_threshold(surface_threshold);
 
     Array nodes = logical_graph.get("nodes", Array());
     Array edges = logical_graph.get("edges", Array());

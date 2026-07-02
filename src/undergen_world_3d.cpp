@@ -2,6 +2,7 @@
 #include "undergen_mesher_node.h"
 #include "undergen_scene_spawner_node.h"
 #include "undergen_grammar_node.h"
+#include "undergen_bsp_placer_node.h"
 #include "density_grid.h"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/classes/label3d.hpp>
@@ -34,6 +35,9 @@ void UnderGenWorld3D::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("set_voxel_size", "size"), &UnderGenWorld3D::set_voxel_size);
     ClassDB::bind_method(D_METHOD("get_voxel_size"), &UnderGenWorld3D::get_voxel_size);
+
+    ClassDB::bind_method(D_METHOD("set_surface_threshold", "threshold"), &UnderGenWorld3D::set_surface_threshold);
+    ClassDB::bind_method(D_METHOD("get_surface_threshold"), &UnderGenWorld3D::get_surface_threshold);
 
     ClassDB::bind_method(D_METHOD("set_generate_on_ready", "enabled"), &UnderGenWorld3D::set_generate_on_ready);
     ClassDB::bind_method(D_METHOD("get_generate_on_ready"), &UnderGenWorld3D::get_generate_on_ready);
@@ -69,6 +73,7 @@ void UnderGenWorld3D::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "grammar", PROPERTY_HINT_RESOURCE_TYPE, "Resource"), "set_grammar_override", "get_grammar_override");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "seed"), "set_generation_seed", "get_generation_seed");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "voxel_size"), "set_voxel_size", "get_voxel_size");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "surface_threshold"), "set_surface_threshold", "get_surface_threshold");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_on_ready"), "set_generate_on_ready", "get_generate_on_ready");
 
     // Inspector button — toggle on to trigger generation
@@ -117,6 +122,14 @@ void UnderGenWorld3D::set_voxel_size(float p_size) {
 
 float UnderGenWorld3D::get_voxel_size() const {
     return voxel_size;
+}
+
+void UnderGenWorld3D::set_surface_threshold(float p_threshold) {
+    surface_threshold = p_threshold;
+}
+
+float UnderGenWorld3D::get_surface_threshold() const {
+    return surface_threshold;
 }
 
 void UnderGenWorld3D::set_generate_on_ready(bool p_enabled) {
@@ -224,6 +237,20 @@ void UnderGenWorld3D::_run_generation_async(int64_t p_seed) {
                         "UnderGenWorld3D: Grammar override → ", path);
                 }
                 break; // only override the first grammar node
+            }
+        }
+    }
+
+    // Propagate surface threshold to placer node(s) in the pipeline
+    if (pipeline.is_valid()) {
+        Array nodes = pipeline->get_nodes();
+        for (int i = 0; i < nodes.size(); ++i) {
+            Ref<UnderGenNode> node = nodes[i];
+            if (node.is_null()) continue;
+            UnderGenBSPPlacerNode *placer_node =
+                Object::cast_to<UnderGenBSPPlacerNode>(node.ptr());
+            if (placer_node) {
+                placer_node->set_surface_threshold(surface_threshold);
             }
         }
     }

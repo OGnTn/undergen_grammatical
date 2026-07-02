@@ -124,14 +124,22 @@ void MCChunk::generate_mesh_from_density_grid() {
                 Vector3i local_pos(x, y, z);
                 Vector3i world_pos_base = chunk_grid_offset + local_pos;
 
-                // 1. Get Material ID for this voxel
-                int mat_idx = _get_voxel_material_id(local_pos);
-
-                // 2. Sample Corners
+                // 1. Sample Corners
                 float corner_values[8];
                 for (int i = 0; i < 8; ++i) {
                     corner_values[i] = density_grid->get_cell(world_pos_base + corner_offsets[i], 1.0f);
                 }
+
+                // 2. Get Material ID from the corner with the lowest density (most open/carved)
+                int min_density_idx = 0;
+                float min_density = corner_values[0];
+                for (int i = 1; i < 8; ++i) {
+                    if (corner_values[i] < min_density) {
+                        min_density = corner_values[i];
+                        min_density_idx = i;
+                    }
+                }
+                int mat_idx = _get_voxel_material_id(local_pos + corner_offsets[min_density_idx]);
 
                 // 3. Determine Cube Index
                 int cube_index = 0;
@@ -531,20 +539,26 @@ Dictionary MCChunk::_march_cubes_multi_mat() {
                 Vector3i local_pos(x, y, z);
                 Vector3i world_pos_base = chunk_grid_offset + local_pos;
 
-                // --- Material Logic ---
-                // Determine which material this voxel belongs to.
-                // Note: In MC, a triangle might span two voxels. 
-                // We typically assign the triangle to the voxel containing the generated geometry.
-                int mat_idx = _get_voxel_material_id(local_pos);
-                
-                // Get or create the surface data for this material
-                SurfaceData &current_surface = surfaces[mat_idx];
-
                 // --- Standard MC Sampling (Same as your code) ---
                 float corner_values[8];
                 for (int i = 0; i < 8; ++i) {
                     corner_values[i] = density_grid->get_cell(world_pos_base + corner_offsets[i], 1.0f);
                 }
+
+                // --- Material Logic ---
+                // Find the corner with the lowest density (most open/carved) to get the correct room material.
+                int min_density_idx = 0;
+                float min_density = corner_values[0];
+                for (int i = 1; i < 8; ++i) {
+                    if (corner_values[i] < min_density) {
+                        min_density = corner_values[i];
+                        min_density_idx = i;
+                    }
+                }
+                int mat_idx = _get_voxel_material_id(local_pos + corner_offsets[min_density_idx]);
+                
+                // Get or create the surface data for this material
+                SurfaceData &current_surface = surfaces[mat_idx];
 
                 int cube_index = 0;
                 for (int i = 0; i < 8; ++i) {
