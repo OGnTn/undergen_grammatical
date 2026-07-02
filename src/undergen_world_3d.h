@@ -19,6 +19,7 @@ private:
     float voxel_size = 1.0f;
     float surface_threshold = 0.0f;
     bool generate_on_ready = false;
+    bool spawn_on_generation_complete = true;
 
     // Inspector "button" — set to true triggers generation
     bool _trigger_generate = false;
@@ -61,6 +62,12 @@ public:
 
     void set_generate_on_ready(bool p_enabled);
     bool get_generate_on_ready() const;
+
+    void set_spawn_on_generation_complete(bool p_enabled);
+    bool get_spawn_on_generation_complete() const;
+
+    void spawn_scenes(Node *parent_node = nullptr);
+    void spawn_scenes_for_node(const String &node_name, Node *parent_node = nullptr);
 
     // Inspector "button" — set true to trigger generation
     void set_trigger_generate(bool p_val);

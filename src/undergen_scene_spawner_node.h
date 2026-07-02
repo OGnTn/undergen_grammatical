@@ -19,6 +19,9 @@ private:
     Ref<PackedScene> scene_to_spawn;
     float spawn_probability = 1.0f;
     bool random_y_rotation = true;
+    bool align_with_normal = false;
+    int spawn_limit = 0;
+    bool shuffle_points = false;
     int64_t random_seed = 0;
     Ref<RandomNumberGenerator> rng;
 
@@ -35,10 +38,17 @@ public:
     float get_spawn_probability() const;
     void set_random_y_rotation(bool p_enabled);
     bool get_random_y_rotation() const;
+    void set_align_with_normal(bool p_align);
+    bool get_align_with_normal() const;
+    void set_spawn_limit(int p_limit);
+    int get_spawn_limit() const;
+    void set_shuffle_points(bool p_shuffle);
+    bool get_shuffle_points() const;
     void set_random_seed(int64_t p_seed);
     int64_t get_random_seed() const;
 
     void execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node3D* parent_node);
+    void spawn_scenes_with_parent(const Dictionary &inputs, Node *parent_node);
     virtual void _execute(const Dictionary &inputs, Dictionary &outputs) override;
 };
 

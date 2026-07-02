@@ -42,6 +42,11 @@ void UnderGenWorld3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_generate_on_ready", "enabled"), &UnderGenWorld3D::set_generate_on_ready);
     ClassDB::bind_method(D_METHOD("get_generate_on_ready"), &UnderGenWorld3D::get_generate_on_ready);
 
+    ClassDB::bind_method(D_METHOD("set_spawn_on_generation_complete", "enabled"), &UnderGenWorld3D::set_spawn_on_generation_complete);
+    ClassDB::bind_method(D_METHOD("get_spawn_on_generation_complete"), &UnderGenWorld3D::get_spawn_on_generation_complete);
+    ClassDB::bind_method(D_METHOD("spawn_scenes", "parent_node"), &UnderGenWorld3D::spawn_scenes, DEFVAL(nullptr));
+    ClassDB::bind_method(D_METHOD("spawn_scenes_for_node", "node_name", "parent_node"), &UnderGenWorld3D::spawn_scenes_for_node, DEFVAL(nullptr));
+
     // Inspector button
     ClassDB::bind_method(D_METHOD("set_trigger_generate", "value"), &UnderGenWorld3D::set_trigger_generate);
     ClassDB::bind_method(D_METHOD("get_trigger_generate"), &UnderGenWorld3D::get_trigger_generate);
@@ -75,6 +80,7 @@ void UnderGenWorld3D::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "voxel_size"), "set_voxel_size", "get_voxel_size");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "surface_threshold"), "set_surface_threshold", "get_surface_threshold");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_on_ready"), "set_generate_on_ready", "get_generate_on_ready");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "spawn_on_generation_complete"), "set_spawn_on_generation_complete", "get_spawn_on_generation_complete");
 
     // Inspector button — toggle on to trigger generation
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "Generate Level"), "set_trigger_generate", "get_trigger_generate");
@@ -138,6 +144,14 @@ void UnderGenWorld3D::set_generate_on_ready(bool p_enabled) {
 
 bool UnderGenWorld3D::get_generate_on_ready() const {
     return generate_on_ready;
+}
+
+void UnderGenWorld3D::set_spawn_on_generation_complete(bool p_enabled) {
+    spawn_on_generation_complete = p_enabled;
+}
+
+bool UnderGenWorld3D::get_spawn_on_generation_complete() const {
+    return spawn_on_generation_complete;
 }
 
 // ── Inspector "button" ─────────────────────────────────────────────────
@@ -313,20 +327,9 @@ void UnderGenWorld3D::_on_meshing_completed(const Dictionary &outputs) {
         _last_context.clear(); // free memory
     }
     
-    // Execute all Spawner nodes on the main thread
-    if (pipeline.is_valid()) {
-        Array nodes = pipeline->get_nodes();
-        for (int i = 0; i < nodes.size(); ++i) {
-            Ref<UnderGenNode> node = nodes[i];
-            if (node.is_null()) continue;
-
-            UnderGenSceneSpawnerNode* spawner = Object::cast_to<UnderGenSceneSpawnerNode>(node.ptr());
-            if (spawner) {
-                Dictionary inputs = pipeline->get_node_inputs(spawner->get_name());
-                Dictionary node_outputs;
-                spawner->execute_with_parent(inputs, node_outputs, this);
-            }
-        }
+    // Execute all Spawner nodes on the main thread if auto-spawn is enabled
+    if (spawn_on_generation_complete) {
+        spawn_scenes(this);
     }
 
     call_deferred("_on_spawning_completed");
@@ -456,6 +459,61 @@ void UnderGenWorld3D::_spawn_debug_zone_labels(const Dictionary &context) {
     int edge_count = (int)edges.size();
     int total = (int)rooms.size() + edge_count;
     UtilityFunctions::print("UnderGenWorld3D: Spawned ", rooms.size(), " room labels + ", edge_count, " edge labels (", total, " total).");
+}
+
+void UnderGenWorld3D::spawn_scenes(Node *parent_node) {
+    if (!parent_node) {
+        parent_node = this;
+    }
+    Node3D *parent_3d = Object::cast_to<Node3D>(parent_node);
+    if (!parent_3d) {
+        UtilityFunctions::printerr("UnderGenWorld3D::spawn_scenes: parent_node is not a Node3D.");
+        return;
+    }
+    if (pipeline.is_valid()) {
+        Array nodes = pipeline->get_nodes();
+        for (int i = 0; i < nodes.size(); ++i) {
+            Ref<UnderGenNode> node = nodes[i];
+            if (node.is_null()) continue;
+
+            UnderGenSceneSpawnerNode* spawner = Object::cast_to<UnderGenSceneSpawnerNode>(node.ptr());
+            if (spawner) {
+                Dictionary inputs = pipeline->get_node_inputs(spawner->get_name());
+                Dictionary node_outputs;
+                spawner->execute_with_parent(inputs, node_outputs, parent_3d);
+            }
+        }
+    }
+}
+
+void UnderGenWorld3D::spawn_scenes_for_node(const String &node_name, Node *parent_node) {
+    if (!parent_node) {
+        parent_node = this;
+    }
+    Node3D *parent_3d = Object::cast_to<Node3D>(parent_node);
+    if (!parent_3d) {
+        UtilityFunctions::printerr("UnderGenWorld3D::spawn_scenes_for_node: parent_node is not a Node3D.");
+        return;
+    }
+    if (pipeline.is_valid()) {
+        Array nodes = pipeline->get_nodes();
+        for (int i = 0; i < nodes.size(); ++i) {
+            Ref<UnderGenNode> node = nodes[i];
+            if (node.is_null()) continue;
+            if (node->get_name() == node_name) {
+                UnderGenSceneSpawnerNode* spawner = Object::cast_to<UnderGenSceneSpawnerNode>(node.ptr());
+                if (spawner) {
+                    Dictionary inputs = pipeline->get_node_inputs(node_name);
+                    Dictionary node_outputs;
+                    spawner->execute_with_parent(inputs, node_outputs, parent_3d);
+                } else {
+                    UtilityFunctions::printerr("UnderGenWorld3D::spawn_scenes_for_node: Node '", node_name, "' is not an UnderGenSceneSpawnerNode.");
+                }
+                return;
+            }
+        }
+        UtilityFunctions::printerr("UnderGenWorld3D::spawn_scenes_for_node: Node '", node_name, "' not found in pipeline.");
+    }
 }
 
 } // namespace godot

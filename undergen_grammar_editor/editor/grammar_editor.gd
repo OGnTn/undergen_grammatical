@@ -954,7 +954,9 @@ func _clear_graph():
 	if not _graph: return
 	_graph.clear_connections()
 	for c in _graph.get_children():
-		if c is GraphNode: c.queue_free()
+		if c is GraphNode:
+			_graph.remove_child(c)
+			c.queue_free()
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  GRAPH CALLBACKS
@@ -978,6 +980,7 @@ func _on_delete_nodes_request(nodes):
 			if conn.from_node == nname or conn.to_node == nname:
 				_graph.disconnect_node(conn.from_node, conn.from_port, conn.to_node, conn.to_port)
 				_edge_meta.erase(str(conn.from_node)+"_"+str(conn.to_node))
+		_graph.remove_child(gn)
 		gn.queue_free()
 
 

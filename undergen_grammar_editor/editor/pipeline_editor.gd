@@ -208,6 +208,7 @@ func _load_pipeline():
 	# Remove all existing graph nodes
 	for child in graph_edit.get_children():
 		if child is GraphNode:
+			graph_edit.remove_child(child)
 			child.queue_free()
 
 	if not current_pipeline: return
@@ -370,6 +371,7 @@ func _on_delete_nodes_request(nodes: Array):
 			var node_res = gn.get_meta("node_resource", null)
 			if node_res and current_pipeline:
 				current_pipeline.remove_pipeline_node(node_res)
+			graph_edit.remove_child(gn)
 			gn.queue_free()
 	# Remove all connections to/from deleted nodes
 	if current_pipeline:
