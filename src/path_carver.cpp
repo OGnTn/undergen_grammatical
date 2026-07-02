@@ -413,13 +413,17 @@ void PathCarver::_carve_complex_brush(DensityGrid* grid, const Vector3i &center,
                     }
                 }
 
-                // Final check
+                // Final check (keep at least 1-voxel solid border)
                 if (dist < current_radius_target) {
-                    grid->set_cell(pos, WORLD_OPEN_VALUE);
-                     // Manual boundary check for Zone safety
-                    if (current_carving_zone_id > 0) {
-                        if (grid->get_zone_at(pos) == 0) {
-                            grid->set_zone_at(pos, current_carving_zone_id);
+                    if (pos.x > 0 && pos.x < gsx - 1 &&
+                        pos.y > 0 && pos.y < gsy - 1 &&
+                        pos.z > 0 && pos.z < gsz - 1) {
+                        grid->set_cell(pos, WORLD_OPEN_VALUE);
+                        // Manual boundary check for Zone safety
+                        if (current_carving_zone_id > 0) {
+                            if (grid->get_zone_at(pos) == 0) {
+                                grid->set_zone_at(pos, current_carving_zone_id);
+                            }
                         }
                     }
                 }
@@ -776,8 +780,14 @@ void PathCarver::_carve_dungeon_path(DensityGrid* grid, const Vector3 &start, co
 
         for (const Vector3i& p : path) {
             _mark_brush(grid, temp_rng.ptr(), p, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
-            grid->set_cell(p + Vector3i(0, 1, 0), WORLD_OPEN_VALUE);
-            grid->set_cell(p + Vector3i(0, 2, 0), WORLD_OPEN_VALUE);
+            Vector3i p1 = p + Vector3i(0, 1, 0);
+            if (p1.x > 0 && p1.x < gsx - 1 && p1.y > 0 && p1.y < gsy - 1 && p1.z > 0 && p1.z < gsz - 1) {
+                grid->set_cell(p1, WORLD_OPEN_VALUE);
+            }
+            Vector3i p2 = p + Vector3i(0, 2, 0);
+            if (p2.x > 0 && p2.x < gsx - 1 && p2.y > 0 && p2.y < gsy - 1 && p2.z > 0 && p2.z < gsz - 1) {
+                grid->set_cell(p2, WORLD_OPEN_VALUE);
+            }
         }
     } else {
         UtilityFunctions::printerr("Dungeon Pathfinding Failed. Falling back.");

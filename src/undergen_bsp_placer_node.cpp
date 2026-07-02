@@ -21,10 +21,19 @@ void UnderGenBSPPlacerNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_grid_size_z"), &UnderGenBSPPlacerNode::get_grid_size_z);
     ClassDB::bind_method(D_METHOD("set_surface_threshold", "threshold"), &UnderGenBSPPlacerNode::set_surface_threshold);
     ClassDB::bind_method(D_METHOD("get_surface_threshold"), &UnderGenBSPPlacerNode::get_surface_threshold);
+    ClassDB::bind_method(D_METHOD("set_margin_x", "margin_x"), &UnderGenBSPPlacerNode::set_margin_x);
+    ClassDB::bind_method(D_METHOD("get_margin_x"), &UnderGenBSPPlacerNode::get_margin_x);
+    ClassDB::bind_method(D_METHOD("set_margin_y", "margin_y"), &UnderGenBSPPlacerNode::set_margin_y);
+    ClassDB::bind_method(D_METHOD("get_margin_y"), &UnderGenBSPPlacerNode::get_margin_y);
+    ClassDB::bind_method(D_METHOD("set_margin_z", "margin_z"), &UnderGenBSPPlacerNode::set_margin_z);
+    ClassDB::bind_method(D_METHOD("get_margin_z"), &UnderGenBSPPlacerNode::get_margin_z);
 
     ADD_PROPERTY(PropertyInfo(Variant::INT, "grid_size_x"), "set_grid_size_x", "get_grid_size_x");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "grid_size_y"), "set_grid_size_y", "get_grid_size_y");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "grid_size_z"), "set_grid_size_z", "get_grid_size_z");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "margin_x"), "set_margin_x", "get_margin_x");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "margin_y"), "set_margin_y", "get_margin_y");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "margin_z"), "set_margin_z", "get_margin_z");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "surface_threshold"), "set_surface_threshold", "get_surface_threshold");
 }
 
@@ -36,6 +45,13 @@ void UnderGenBSPPlacerNode::set_grid_size_z(int p_z) { grid_size_z = p_z; }
 int UnderGenBSPPlacerNode::get_grid_size_z() const { return grid_size_z; }
 void UnderGenBSPPlacerNode::set_surface_threshold(float p_threshold) { surface_threshold = p_threshold; }
 float UnderGenBSPPlacerNode::get_surface_threshold() const { return surface_threshold; }
+
+void UnderGenBSPPlacerNode::set_margin_x(int p_x) { margin_x = p_x; }
+int UnderGenBSPPlacerNode::get_margin_x() const { return margin_x; }
+void UnderGenBSPPlacerNode::set_margin_y(int p_y) { margin_y = p_y; }
+int UnderGenBSPPlacerNode::get_margin_y() const { return margin_y; }
+void UnderGenBSPPlacerNode::set_margin_z(int p_z) { margin_z = p_z; }
+int UnderGenBSPPlacerNode::get_margin_z() const { return margin_z; }
 
 void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outputs) {
     // Port 0: Seed (int)
@@ -99,9 +115,14 @@ void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outpu
             int volume() const { return size.x * size.y * size.z; }
         };
 
+        // Clamp margins to leave at least 6 voxels of center space (min_child_size = 6)
+        int safe_margin_x = Math::clamp(margin_x, 1, Math::max(1, (grid_size_x - 6) / 2));
+        int safe_margin_y = Math::clamp(margin_y, 1, Math::max(1, (grid_size_y - 6) / 2));
+        int safe_margin_z = Math::clamp(margin_z, 1, Math::max(1, (grid_size_z - 6) / 2));
+
         GridAABB root;
-        root.min = Vector3i(1, 1, 1);
-        root.size = Vector3i(grid_size_x - 2, grid_size_y - 2, grid_size_z - 2);
+        root.min = Vector3i(safe_margin_x, safe_margin_y, safe_margin_z);
+        root.size = Vector3i(grid_size_x - safe_margin_x * 2, grid_size_y - safe_margin_y * 2, grid_size_z - safe_margin_z * 2);
 
         if (root.size.x > 0 && root.size.y > 0 && root.size.z > 0) {
             std::vector<GridAABB> leaves;

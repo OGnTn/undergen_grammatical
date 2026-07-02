@@ -15,6 +15,9 @@ private:
     int grid_size_x = 48;
     int grid_size_y = 16;
     int grid_size_z = 48;
+    int margin_x = 1;
+    int margin_y = 1;
+    int margin_z = 1;
     float surface_threshold = 0.0f;
     Ref<RandomNumberGenerator> rng;
 
@@ -33,6 +36,13 @@ public:
     int get_grid_size_z() const;
     void set_surface_threshold(float p_threshold);
     float get_surface_threshold() const;
+
+    void set_margin_x(int p_x);
+    int get_margin_x() const;
+    void set_margin_y(int p_y);
+    int get_margin_y() const;
+    void set_margin_z(int p_z);
+    int get_margin_z() const;
 
     virtual void _execute(const Dictionary &inputs, Dictionary &outputs) override;
 };

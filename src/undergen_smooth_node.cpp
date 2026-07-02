@@ -92,6 +92,26 @@ void UnderGenSmoothNode::_execute(const Dictionary &inputs, Dictionary &outputs)
             }
         }
     }
+    // Enforce solid boundary casing to prevent holes in the terrain after smoothing
+    for (int z = 0; z < gsz; ++z) {
+        for (int y = 0; y < gsy; ++y) {
+            temp_data[(z * gsy + y) * gsx + 0] = WORLD_SOLID_VALUE;
+            temp_data[(z * gsy + y) * gsx + (gsx - 1)] = WORLD_SOLID_VALUE;
+        }
+    }
+    for (int z = 0; z < gsz; ++z) {
+        for (int x = 0; x < gsx; ++x) {
+            temp_data[(z * gsy + 0) * gsx + x] = WORLD_SOLID_VALUE;
+            temp_data[(z * gsy + (gsy - 1)) * gsx + x] = WORLD_SOLID_VALUE;
+        }
+    }
+    for (int y = 0; y < gsy; ++y) {
+        for (int x = 0; x < gsx; ++x) {
+            temp_data[(0 * gsy + y) * gsx + x] = WORLD_SOLID_VALUE;
+            temp_data[((gsz - 1) * gsy + y) * gsx + x] = WORLD_SOLID_VALUE;
+        }
+    }
+
     memcpy(grid_data, temp_data, total_size * sizeof(float));
 
     // Write back
