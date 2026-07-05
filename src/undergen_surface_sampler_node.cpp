@@ -207,13 +207,44 @@ void UnderGenSurfaceSamplerNode::_execute(const Dictionary &inputs, Dictionary &
                 String point_zone = (zone >= 0 && zone < (int)zone_names.size()) ? zone_names[zone] : String();
                 if (!zone_matches_fast(point_zone)) continue;
 
+                // Calculate the exact surface intersection point using linear interpolation
+                // along the edges where the density crosses the surface threshold.
+                Vector3 surface_pos_sum(0, 0, 0);
+                int intersect_count = 0;
+
+                for (int n = 0; n < 6; ++n) {
+                    int nx = x + neighbors[n].dx;
+                    int ny = y + neighbors[n].dy;
+                    int nz = z + neighbors[n].dz;
+                    float nval = 1.0f;
+                    if (nx >= 0 && nx < gsx && ny >= 0 && ny < gsy && nz >= 0 && nz < gsz) {
+                        nval = density_data[nx + gsx * (ny + gsy * nz)];
+                    }
+                    if (nval <= surf) {
+                        float denom = cell_val - nval;
+                        float t = 0.5f;
+                        if (Math::abs(denom) > 0.0001f) {
+                            t = (cell_val - surf) / denom;
+                        }
+                        t = Math::clamp(t, 0.0f, 1.0f);
+                        Vector3 edge_pos = Vector3(x, y, z) + Vector3(neighbors[n].dx, neighbors[n].dy, neighbors[n].dz) * t;
+                        surface_pos_sum += edge_pos;
+                        intersect_count++;
+                    }
+                }
+
                 SampledPoint sampled;
                 sampled.normal = normal;
                 sampled.zone = zone;
                 sampled.zone_name = point_zone;
                 sampled.material = (int)material_data[idx];
                 sampled.slope = 1.0f - Math::abs(dot_up); // 0 = flat floor, 1 = vertical wall
-                sampled.world_pos = Vector3(x, y, z) * voxel_size + normal * (voxel_size * 0.5f);
+
+                if (intersect_count > 0) {
+                    sampled.world_pos = (surface_pos_sum / (float)intersect_count) * voxel_size;
+                } else {
+                    sampled.world_pos = Vector3(x, y, z) * voxel_size + normal * (voxel_size * 0.5f);
+                }
                 local_points.push_back(sampled);
             }
         }
