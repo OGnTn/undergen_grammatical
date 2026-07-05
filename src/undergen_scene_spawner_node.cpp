@@ -2,6 +2,7 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/math.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <algorithm>
 
 namespace godot {
 
@@ -25,6 +26,8 @@ void UnderGenSceneSpawnerNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_shuffle_points"), &UnderGenSceneSpawnerNode::get_shuffle_points);
     ClassDB::bind_method(D_METHOD("set_random_seed", "seed"), &UnderGenSceneSpawnerNode::set_random_seed);
     ClassDB::bind_method(D_METHOD("get_random_seed"), &UnderGenSceneSpawnerNode::get_random_seed);
+    ClassDB::bind_method(D_METHOD("set_consume_points", "consume"), &UnderGenSceneSpawnerNode::set_consume_points);
+    ClassDB::bind_method(D_METHOD("get_consume_points"), &UnderGenSceneSpawnerNode::get_consume_points);
     ClassDB::bind_method(D_METHOD("spawn_scenes_with_parent", "inputs", "parent_node"), &UnderGenSceneSpawnerNode::spawn_scenes_with_parent);
 
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "scene_to_spawn", PROPERTY_HINT_RESOURCE_TYPE, "PackedScene"), "set_scene_to_spawn", "get_scene_to_spawn");
@@ -34,6 +37,7 @@ void UnderGenSceneSpawnerNode::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::INT, "spawn_limit"), "set_spawn_limit", "get_spawn_limit");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shuffle_points"), "set_shuffle_points", "get_shuffle_points");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "random_seed"), "set_random_seed", "get_random_seed");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "consume_points"), "set_consume_points", "get_consume_points");
 }
 
 void UnderGenSceneSpawnerNode::set_scene_to_spawn(const Variant &p_scene) {
@@ -63,6 +67,8 @@ void UnderGenSceneSpawnerNode::set_shuffle_points(bool p_shuffle) { shuffle_poin
 bool UnderGenSceneSpawnerNode::get_shuffle_points() const { return shuffle_points; }
 void UnderGenSceneSpawnerNode::set_random_seed(int64_t p_seed) { random_seed = p_seed; rng->set_seed(p_seed); }
 int64_t UnderGenSceneSpawnerNode::get_random_seed() const { return random_seed; }
+void UnderGenSceneSpawnerNode::set_consume_points(bool p_consume) { consume_points = p_consume; }
+bool UnderGenSceneSpawnerNode::get_consume_points() const { return consume_points; }
 
 void UnderGenSceneSpawnerNode::_execute(const Dictionary &inputs, Dictionary &outputs) {
     // Passthrough - actual spawning requires scene tree, see execute_with_parent
@@ -101,6 +107,8 @@ void UnderGenSceneSpawnerNode::execute_with_parent(const Dictionary &inputs, Dic
             std::swap(indices[i], indices[j]);
         }
     }
+
+    std::vector<size_t> spawned_indices;
 
     for (size_t idx : indices) {
         if (spawn_limit > 0 && spawned_count >= spawn_limit) {
@@ -153,6 +161,14 @@ void UnderGenSceneSpawnerNode::execute_with_parent(const Dictionary &inputs, Dic
 
         parent_node->add_child(node3d);
         spawned_count++;
+        spawned_indices.push_back(idx);
+    }
+
+    if (consume_points && !spawned_indices.empty()) {
+        std::sort(spawned_indices.begin(), spawned_indices.end(), std::greater<size_t>());
+        for (size_t idx : spawned_indices) {
+            point_set->remove_point((int)idx);
+        }
     }
 
     UtilityFunctions::print("UnderGenSceneSpawnerNode: Spawned ", spawned_count, " entities.");

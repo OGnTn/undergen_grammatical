@@ -245,6 +245,7 @@ void UnderGenVoxStampNode::_clear_vox_cache() {
 
 void UnderGenVoxStampNode::_stamp_vox(DensityGrid* grid, const ResolvedRoom &room,
                                        const ogt_vox_scene* scene,
+                                       int zone_id,
                                        std::vector<Dictionary> &out_spawns,
                                        Array &out_connections) {
     if (!scene || !grid) return;
@@ -338,6 +339,9 @@ void UnderGenVoxStampNode::_stamp_vox(DensityGrid* grid, const ResolvedRoom &roo
                         continue;
                     }
                     Vector3i gp(fx, fy, fz);
+                    if (zone_id > 0) {
+                        grid->set_zone_at(gp, zone_id);
+                    }
 
                     if (ci == 0) { // Air
                         if (!vox_inverse_density) grid->set_cell(gp, OPEN);
@@ -434,8 +438,9 @@ void UnderGenVoxStampNode::_execute(const Dictionary &inputs, Dictionary &output
 
         const ogt_vox_scene* scene = _load_vox(vox_path);
         if (scene) {
+            int zone_id = grid->register_zone_name(room.type);
             Array room_connections;
-            _stamp_vox(grid.ptr(), room, scene, vox_spawns, room_connections);
+            _stamp_vox(grid.ptr(), room, scene, zone_id, vox_spawns, room_connections);
             r_dict["connection_points"] = room_connections;
             if (exclude_from_smoothing || room.exclude_from_smoothing) {
                 r_dict["exclude_from_smoothing"] = true;

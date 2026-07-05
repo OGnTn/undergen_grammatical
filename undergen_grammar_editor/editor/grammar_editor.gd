@@ -21,6 +21,9 @@ var current_resource: LevelGrammarResource:
 var _path_label:    Label          # shows current resource path
 var _tabs:          TabContainer   # shown only when resource is loaded
 var _splash:        Control        # shown when no resource is loaded
+var _settings_bar:  HBoxContainer
+var _axiom_edit:    LineEdit
+var _settings_sep:  HSeparator
 
 # Palette tab
 var _pal_list:      ItemList
@@ -123,6 +126,26 @@ func _ready():
 
 	vbox.add_child(HSeparator.new())
 
+	# ── Settings bar (Axiom edit field) ──────────────────────────────────────
+	_settings_bar = HBoxContainer.new()
+	_settings_bar.add_theme_constant_override("separation", 6)
+	_settings_bar.hide()
+	vbox.add_child(_settings_bar)
+
+	var axiom_lbl = Label.new()
+	axiom_lbl.text = "  Axiom:"
+	_settings_bar.add_child(axiom_lbl)
+
+	_axiom_edit = LineEdit.new()
+	_axiom_edit.placeholder_text = "e.g. Start"
+	_axiom_edit.custom_minimum_size = Vector2(200, 0)
+	_axiom_edit.text_changed.connect(_on_axiom_changed)
+	_settings_bar.add_child(_axiom_edit)
+
+	_settings_sep = HSeparator.new()
+	_settings_sep.hide()
+	vbox.add_child(_settings_sep)
+
 	# ── Splash (no resource loaded) ──────────────────────────────────────────
 	_splash = _build_splash()
 	vbox.add_child(_splash)
@@ -197,13 +220,25 @@ func _on_resource_changed():
 			if current_resource.resource_path != "" else "(unsaved)"
 		_path_label.modulate = Color(0.9, 0.9, 0.9)
 		_splash.hide()
+		if _settings_bar: _settings_bar.show()
+		if _settings_sep: _settings_sep.show()
 		_tabs.show()
+		if _axiom_edit: _axiom_edit.text = current_resource.axiom
 		_refresh_all()
 	else:
 		_path_label.text = "(no grammar loaded)"
 		_path_label.modulate = Color(0.6, 0.6, 0.6)
 		_splash.show()
+		if _settings_bar: _settings_bar.hide()
+		if _settings_sep: _settings_sep.hide()
 		_tabs.hide()
+
+
+func _on_axiom_changed(new_text: String):
+	if current_resource:
+		current_resource.axiom = new_text.strip_edges()
+		_refresh_lhs_options()
+		_rebuild_ctx_menu()
 
 
 func _on_new_grammar():
@@ -738,7 +773,9 @@ func _on_add_rule():
 	_save_current_rule()
 	var rule = GraphRule.new()
 	rule.rule_name = "Rule%d" % current_resource.rules.size()
-	if current_resource.room_types.size() > 0:
+	if current_resource.axiom != "":
+		rule.lhs_symbol = current_resource.axiom
+	elif current_resource.room_types.size() > 0:
 		rule.lhs_symbol = current_resource.room_types[0].symbol
 	current_resource.rules.append(rule)
 	_refresh_rules_list()
@@ -1010,8 +1047,14 @@ func _on_ctx_item_pressed(id: int):
 func _rebuild_ctx_menu():
 	_ctx_menu.clear()
 	if not current_resource: return
-	for i in current_resource.room_types.size():
-		_ctx_menu.add_item(current_resource.room_types[i].symbol, i)
+	var syms: Array[String] = []
+	if current_resource.axiom != "":
+		syms.append(current_resource.axiom)
+	for rt: RoomType in current_resource.room_types:
+		if rt.symbol != "" and not syms.has(rt.symbol):
+			syms.append(rt.symbol)
+	for i in syms.size():
+		_ctx_menu.add_item(syms[i], i)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  STATE VARIABLES
@@ -1066,13 +1109,33 @@ func _refresh_lhs_options():
 	var cur = _lhs_opt.get_item_text(_lhs_opt.selected) if _lhs_opt.selected >= 0 else ""
 	_populate_palette_option(_lhs_opt)
 	for i in _lhs_opt.item_count:
-		if _lhs_opt.get_item_text(i) == cur: _lhs_opt.select(i); return
+		if _lhs_opt.get_item_text(i) == cur:
+			_lhs_opt.select(i)
+			break
+	if _graph:
+		for child in _graph.get_children():
+			if child is GraphNode:
+				var sym_opt = child.get_node_or_null("Box/SymOpt")
+				if sym_opt is OptionButton:
+					var old_val = sym_opt.get_item_text(sym_opt.selected) if sym_opt.selected >= 0 else ""
+					_populate_palette_option(sym_opt)
+					for i in sym_opt.item_count:
+						if sym_opt.get_item_text(i) == old_val:
+							sym_opt.select(i)
+							break
 
 
 func _populate_palette_option(opt: OptionButton):
 	opt.clear()
 	if not current_resource: return
-	for rt: RoomType in current_resource.room_types: opt.add_item(rt.symbol)
+	var syms: Array[String] = []
+	if current_resource.axiom != "":
+		syms.append(current_resource.axiom)
+	for rt: RoomType in current_resource.room_types:
+		if rt.symbol != "" and not syms.has(rt.symbol):
+			syms.append(rt.symbol)
+	for sym in syms:
+		opt.add_item(sym)
 
 
 func _populate_state_var_option(opt: OptionButton):

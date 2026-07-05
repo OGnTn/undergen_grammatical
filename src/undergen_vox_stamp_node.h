@@ -32,7 +32,7 @@ private:
 
     const ogt_vox_scene* _load_vox(const String &path);
     void _stamp_vox(DensityGrid* grid, const ResolvedRoom &room, const ogt_vox_scene* scene,
-                    std::vector<Dictionary> &out_spawns, Array &out_connections);
+                    int zone_id, std::vector<Dictionary> &out_spawns, Array &out_connections);
     void _clear_vox_cache();
 
     void _rebuild_maps_from_entries();
