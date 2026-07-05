@@ -43,6 +43,12 @@ void UnderGenAStarCarverNode::_execute(const Dictionary &inputs, Dictionary &out
         return;
     }
 
+    int64_t seed = context.get("seed", (int64_t)12345);
+    rng->set_seed(seed);
+    if (wobble_noise.is_valid()) {
+        wobble_noise->set_seed((int)seed);
+    }
+
     Ref<DensityGrid> grid = context.get("grid", Ref<DensityGrid>());
     Array rooms_arr = context.get("rooms", Array());
     Array edges_arr = context.get("edges", Array());

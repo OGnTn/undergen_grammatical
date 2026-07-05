@@ -6,6 +6,8 @@
 #include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/random_number_generator.hpp>
 #include <godot_cpp/classes/node3d.hpp>
+#include <godot_cpp/variant/node_path.hpp>
+#include <godot_cpp/classes/multiplayer_spawner.hpp>
 
 namespace godot {
 
@@ -25,6 +27,9 @@ private:
     int64_t random_seed = 0;
     bool consume_points = false;
     Ref<RandomNumberGenerator> rng;
+    NodePath parent_node_path;
+    bool force_readable_names = true;
+    NodePath multiplayer_spawner_path;
 
 protected:
     static void _bind_methods();
@@ -49,6 +54,12 @@ public:
     int64_t get_random_seed() const;
     void set_consume_points(bool p_consume);
     bool get_consume_points() const;
+    void set_parent_node(const NodePath &p_path);
+    NodePath get_parent_node() const;
+    void set_force_readable_names(bool p_force);
+    bool get_force_readable_names() const;
+    void set_multiplayer_spawner(const NodePath &p_path);
+    NodePath get_multiplayer_spawner() const;
 
     void execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node3D* parent_node);
     void spawn_scenes_with_parent(const Dictionary &inputs, Node *parent_node);

@@ -252,6 +252,7 @@ void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outpu
     context["grid"] = grid;
     context["rooms"] = placed_rooms_array;
     context["edges"] = edges;
+    context["seed"] = seed;
 
     outputs[0] = context; // Port 0: Generation Context
 }
