@@ -180,36 +180,58 @@ void PathCarver::create_paths_from_edges(DensityGrid* grid, RandomNumberGenerato
         bool end_set = false;
 
         // Custom Connection Point Resolution
-        if (rA.connection_points.size() > 0) {
-            Vector3 target = rB.center();
-            Vector3 closest_point = rA.connection_points[0];
-            float min_dist = closest_point.distance_to(target);
-            for (int j = 1; j < rA.connection_points.size(); ++j) {
-                Vector3 pt = rA.connection_points[j];
-                float dist = pt.distance_to(target);
-                if (dist < min_dist) {
-                    min_dist = dist;
-                    closest_point = pt;
+        if (rA.connection_points.size() > 0 && rB.connection_points.size() > 0) {
+            Vector3 best_A = rA.connection_points[0];
+            Vector3 best_B = rB.connection_points[0];
+            float min_dist = best_A.distance_to(best_B);
+            for (int i = 0; i < rA.connection_points.size(); ++i) {
+                Vector3 ptA = rA.connection_points[i];
+                for (int j = 0; j < rB.connection_points.size(); ++j) {
+                    Vector3 ptB = rB.connection_points[j];
+                    float dist = ptA.distance_to(ptB);
+                    if (dist < min_dist) {
+                        min_dist = dist;
+                        best_A = ptA;
+                        best_B = ptB;
+                    }
                 }
             }
-            start_point = closest_point;
+            start_point = best_A;
             start_set = true;
-        }
-
-        if (rB.connection_points.size() > 0) {
-            Vector3 target = start_set ? start_point : rA.center();
-            Vector3 closest_point = rB.connection_points[0];
-            float min_dist = closest_point.distance_to(target);
-            for (int j = 1; j < rB.connection_points.size(); ++j) {
-                Vector3 pt = rB.connection_points[j];
-                float dist = pt.distance_to(target);
-                if (dist < min_dist) {
-                    min_dist = dist;
-                    closest_point = pt;
-                }
-            }
-            end_point = closest_point;
+            end_point = best_B;
             end_set = true;
+        } else {
+            if (rA.connection_points.size() > 0) {
+                Vector3 target = rB.center();
+                Vector3 closest_point = rA.connection_points[0];
+                float min_dist = closest_point.distance_to(target);
+                for (int j = 1; j < rA.connection_points.size(); ++j) {
+                    Vector3 pt = rA.connection_points[j];
+                    float dist = pt.distance_to(target);
+                    if (dist < min_dist) {
+                        min_dist = dist;
+                        closest_point = pt;
+                    }
+                }
+                start_point = closest_point;
+                start_set = true;
+            }
+
+            if (rB.connection_points.size() > 0) {
+                Vector3 target = start_set ? start_point : rA.center();
+                Vector3 closest_point = rB.connection_points[0];
+                float min_dist = closest_point.distance_to(target);
+                for (int j = 1; j < rB.connection_points.size(); ++j) {
+                    Vector3 pt = rB.connection_points[j];
+                    float dist = pt.distance_to(target);
+                    if (dist < min_dist) {
+                        min_dist = dist;
+                        closest_point = pt;
+                    }
+                }
+                end_point = closest_point;
+                end_set = true;
+            }
         }
 
         // Fallbacks if connection points aren't defined
@@ -264,13 +286,25 @@ void PathCarver::create_paths_from_edges(DensityGrid* grid, RandomNumberGenerato
         if(dungeon_mode) {
              _carve_dungeon_path(grid, start_point, end_point);
         } else {
-             _carve_bezier_path(grid, rng, wobble_noise, start_point, end_point);
+             Vector3 start_normal(0, 0, 0);
+             Vector3 diff_start = start_point - rA.center();
+             if (diff_start.length_squared() > 0.001f) {
+                 start_normal = diff_start.normalized();
+             }
+
+             Vector3 end_normal(0, 0, 0);
+             Vector3 diff_end = end_point - rB.center();
+             if (diff_end.length_squared() > 0.001f) {
+                 end_normal = diff_end.normalized();
+             }
+
+             _carve_bezier_path(grid, rng, wobble_noise, start_point, end_point, start_normal, end_normal);
         }
     }
     current_carving_zone_id = 0;
 }
 
-void PathCarver::_carve_bezier_path(DensityGrid* grid, RandomNumberGenerator* rng, Ref<FastNoiseLite> wobble_noise, const Vector3 &start, const Vector3 &end) {
+void PathCarver::_carve_bezier_path(DensityGrid* grid, RandomNumberGenerator* rng, Ref<FastNoiseLite> wobble_noise, const Vector3 &start, const Vector3 &end, const Vector3 &start_normal, const Vector3 &end_normal) {
     std::vector<Vector3> path_nodes;
     path_nodes.push_back(start);
     
@@ -319,6 +353,19 @@ void PathCarver::_carve_bezier_path(DensityGrid* grid, RandomNumberGenerator* rn
             rng->randf_range(-offset_magnitude, offset_magnitude), 
             rng->randf_range(-offset_magnitude, offset_magnitude)
         );
+
+        if (j == 0 && start_normal.length_squared() > 0.001f) {
+            float cp1_dot = cp1_offset.dot(start_normal);
+            if (cp1_dot < 0.0f) {
+                cp1_offset -= start_normal * cp1_dot;
+            }
+        }
+        if (j == path_nodes.size() - 2 && end_normal.length_squared() > 0.001f) {
+            float cp2_dot = cp2_offset.dot(end_normal);
+            if (cp2_dot < 0.0f) {
+                cp2_offset -= end_normal * cp2_dot;
+            }
+        }
         
         Vector3 p1 = p0 + (delta / 3.0f) + cp1_offset;
         Vector3 p2 = p0 + (delta * 2.0f / 3.0f) + cp2_offset;

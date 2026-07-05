@@ -76,7 +76,7 @@ private:
     
     // Dungeon Carving
     void _carve_dungeon_path(DensityGrid* grid, const Vector3 &start, const Vector3 &end);
-    void _carve_bezier_path(DensityGrid* grid, RandomNumberGenerator* rng, Ref<FastNoiseLite> wobble_noise, const Vector3 &start, const Vector3 &end);
+    void _carve_bezier_path(DensityGrid* grid, RandomNumberGenerator* rng, Ref<FastNoiseLite> wobble_noise, const Vector3 &start, const Vector3 &end, const Vector3 &start_normal, const Vector3 &end_normal);
     void _carve_corridor_segment(DensityGrid* grid, RandomNumberGenerator* rng, const Vector3i &from, const Vector3i &to);
     
     // Recursive / Castle Algo
