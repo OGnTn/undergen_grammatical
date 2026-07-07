@@ -15,6 +15,7 @@
 #include <godot_cpp/classes/rd_shader_spirv.hpp>
 #include <godot_cpp/classes/rd_uniform.hpp>
 #include <godot_cpp/classes/time.hpp>
+#include <godot_cpp/classes/area3d.hpp>
 
 namespace godot {
 
@@ -37,6 +38,7 @@ MCChunk::~MCChunk() {
     // Destructor logic if needed
     _clear_collision(); // Ensure collision is cleaned up on destruction
     _clear_occluder();  // Ensure occluder is cleaned up on destruction
+    _clear_liquid();    // Ensure liquid is cleaned up on destruction
 }
 
 void MCChunk::_notification(int p_what) {
@@ -86,11 +88,23 @@ void MCChunk::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_compute_shader", "shader"), &MCChunk::set_compute_shader);
     ClassDB::bind_method(D_METHOD("get_compute_shader"), &MCChunk::get_compute_shader);
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "compute_shader", PROPERTY_HINT_RESOURCE_TYPE, "RDShaderFile"), "set_compute_shader", "get_compute_shader");
+
+    ClassDB::bind_method(D_METHOD("set_liquid_material", "material"), &MCChunk::set_liquid_material);
+    ClassDB::bind_method(D_METHOD("get_liquid_material"), &MCChunk::get_liquid_material);
+    ClassDB::bind_method(D_METHOD("set_liquid_material_id", "id"), &MCChunk::set_liquid_material_id);
+    ClassDB::bind_method(D_METHOD("get_liquid_material_id"), &MCChunk::get_liquid_material_id);
+    ClassDB::bind_method(D_METHOD("set_generate_liquid_trigger", "enable"), &MCChunk::set_generate_liquid_trigger);
+    ClassDB::bind_method(D_METHOD("get_generate_liquid_trigger"), &MCChunk::get_generate_liquid_trigger);
+
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "liquid_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_liquid_material", "get_liquid_material");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "liquid_material_id", PROPERTY_HINT_RANGE, "0,255,1"), "set_liquid_material_id", "get_liquid_material_id");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_liquid_trigger"), "set_generate_liquid_trigger", "get_generate_liquid_trigger");
 }
 
 void MCChunk::generate_mesh_from_density_grid() {
     _clear_collision();
     _clear_occluder();
+    _clear_liquid();
     
     if (!density_grid.is_valid()) {
         Ref<ArrayMesh> current_mesh = get_mesh();
@@ -384,6 +398,11 @@ void MCChunk::generate_mesh_from_density_grid() {
     // --- STEP 5: Generate Physics/Occlusion ---
     if (generate_collision) _generate_collision(total_collision_vertices, total_collision_indices);
     if (generate_occluder) _generate_occluder(total_collision_vertices, total_collision_indices);
+    
+    // --- STEP 6: Generate Liquid Mesh ---
+    if (liquid_material.is_valid()) {
+        _generate_liquid_mesh();
+    }
     
     uint64_t t6 = time->get_ticks_usec();
     uint64_t dt_collision = t6 - t5;
@@ -1102,5 +1121,232 @@ TypedArray<Material> MCChunk::get_materials() const { return materials; }
 
 void MCChunk::set_compute_shader(const Ref<RDShaderFile> &p_shader) { compute_shader = p_shader; }
 Ref<RDShaderFile> MCChunk::get_compute_shader() const { return compute_shader; }
+
+void MCChunk::set_liquid_material(const Ref<Material> &p_material) { liquid_material = p_material; }
+Ref<Material> MCChunk::get_liquid_material() const { return liquid_material; }
+
+void MCChunk::set_liquid_material_id(int p_id) { liquid_material_id = Math::clamp(p_id, 0, 255); }
+int MCChunk::get_liquid_material_id() const { return liquid_material_id; }
+
+void MCChunk::set_generate_liquid_trigger(bool p_enabled) { generate_liquid_trigger = p_enabled; }
+bool MCChunk::get_generate_liquid_trigger() const { return generate_liquid_trigger; }
+
+void MCChunk::_clear_liquid() {
+    for (int i = get_child_count() - 1; i >= 0; --i) {
+        Node *child = get_child(i);
+        if (child && (child->get_name() == String("LiquidMesh") || child->get_name() == String("LiquidTrigger"))) {
+            child->queue_free();
+        }
+    }
+}
+
+void MCChunk::_generate_liquid_mesh() {
+    if (!density_grid.is_valid()) return;
+
+    int dim_x = density_grid->get_grid_size_x();
+    int dim_y = density_grid->get_grid_size_y();
+    int dim_z = density_grid->get_grid_size_z();
+    float surf_thresh = density_grid->get_surface_threshold();
+
+    // 1. Scan if there's any liquid in this chunk
+    bool has_liquid = false;
+    for (int z = 0; z < chunk_size; ++z) {
+        for (int y = 0; y < chunk_size; ++y) {
+            for (int x = 0; x < chunk_size; ++x) {
+                Vector3i world_pos = chunk_grid_offset + Vector3i(x, y, z);
+                if (world_pos.x >= 0 && world_pos.x < dim_x &&
+                    world_pos.y >= 0 && world_pos.y < dim_y &&
+                    world_pos.z >= 0 && world_pos.z < dim_z) {
+                    if (density_grid->get_material_id(world_pos) == liquid_material_id) {
+                        has_liquid = true;
+                        break;
+                    }
+                }
+            }
+            if (has_liquid) break;
+        }
+        if (has_liquid) break;
+    }
+
+    if (!has_liquid) return;
+
+    // Helper lambda to sample virtual liquid density
+    auto get_liquid_density = [&](const Vector3i &wpos) -> float {
+        if (wpos.x < 0 || wpos.x >= dim_x || wpos.y < 0 || wpos.y >= dim_y || wpos.z < 0 || wpos.z >= dim_z) {
+            return -1.0f;
+        }
+        if (density_grid->get_cell(wpos) > surf_thresh) {
+            return -1.0f; // Inside solid terrain, no liquid
+        }
+        if (density_grid->get_material_id(wpos) == liquid_material_id) {
+            return 1.0f; // Liquid cell
+        }
+        return -1.0f; // Air cell
+    };
+
+    PackedVector3Array output_vertices;
+    PackedInt32Array output_triangles;
+    Dictionary vertex_cache;
+
+    const Vector3i corner_offsets[8] = {
+        Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(1, 1, 0), Vector3i(0, 1, 0),
+        Vector3i(0, 0, 1), Vector3i(1, 0, 1), Vector3i(1, 1, 1), Vector3i(0, 1, 1)
+    };
+
+    // 2. Perform Marching Cubes on virtual liquid density
+    for (int z = 0; z < chunk_size; ++z) {
+        for (int y = 0; y < chunk_size; ++y) {
+            for (int x = 0; x < chunk_size; ++x) {
+                Vector3i local_pos(x, y, z);
+                Vector3i world_pos_base = chunk_grid_offset + local_pos;
+
+                float corner_values[8];
+                for (int i = 0; i < 8; ++i) {
+                    corner_values[i] = get_liquid_density(world_pos_base + corner_offsets[i]);
+                }
+
+                int cube_index = 0;
+                for (int i = 0; i < 8; ++i) {
+                    if (corner_values[i] > 0.0f) {
+                        cube_index |= (1 << i);
+                    }
+                }
+
+                const int* tri_table_row = McTables::TRI_TABLE[cube_index];
+                if (tri_table_row[0] == -1) continue;
+
+                Vector3 corner_locations_local[8];
+                for (int i = 0; i < 8; ++i) {
+                    corner_locations_local[i] = Vector3(local_pos + corner_offsets[i]) * voxel_size;
+                }
+
+                int triangle_indices[3];
+                for (int i = 0; tri_table_row[i] != -1; i += 3) {
+                    for (int j = 0; j < 3; ++j) {
+                        int edge_index = tri_table_row[i + j];
+                        int corner_a_idx = McTables::CORNER_INDEX_A_FROM_EDGE[edge_index];
+                        int corner_b_idx = McTables::CORNER_INDEX_B_FROM_EDGE[edge_index];
+                        Vector3i world_corner_a = world_pos_base + corner_offsets[corner_a_idx];
+
+                        String edge_full_key = String::num_int64(world_corner_a.x) + "_" +
+                                               String::num_int64(world_corner_a.y) + "_" +
+                                               String::num_int64(world_corner_a.z) + "_" +
+                                               String::num_int64(edge_index);
+
+                        if (vertex_cache.has(edge_full_key)) {
+                            triangle_indices[j] = (int)vertex_cache[edge_full_key];
+                        } else {
+                            float val1 = corner_values[corner_a_idx];
+                            float val2 = corner_values[corner_b_idx];
+                            Vector3 p1 = corner_locations_local[corner_a_idx];
+                            Vector3 p2 = corner_locations_local[corner_b_idx];
+                            Vector3 vert_pos;
+                            if (Math::abs(val1 - val2) < CMP_EPSILON) {
+                                vert_pos = (p1 + p2) * 0.5f;
+                            } else {
+                                float t = (0.0f - val1) / (val2 - val1);
+                                vert_pos = p1 + t * (p2 - p1);
+                            }
+
+                            int new_vertex_index = output_vertices.size();
+                            output_vertices.append(vert_pos);
+                            vertex_cache[edge_full_key] = new_vertex_index;
+                            triangle_indices[j] = new_vertex_index;
+                        }
+                    }
+
+                    output_triangles.append(triangle_indices[0]);
+                    output_triangles.append(triangle_indices[1]);
+                    output_triangles.append(triangle_indices[2]);
+                }
+            }
+        }
+    }
+
+    if (output_vertices.is_empty()) return;
+
+    // 3. Compute smooth normals
+    PackedVector3Array output_normals;
+    output_normals.resize(output_vertices.size());
+    for(int i = 0; i < output_normals.size(); ++i) {
+        output_normals[i] = Vector3(0, 0, 0);
+    }
+    for (int i = 0; i < output_triangles.size(); i += 3) {
+        int i1 = output_triangles[i];
+        int i2 = output_triangles[i+1];
+        int i3 = output_triangles[i+2];
+
+        Vector3 v1 = output_vertices[i1];
+        Vector3 v2 = output_vertices[i2];
+        Vector3 v3 = output_vertices[i3];
+
+        Vector3 face_normal = (v2 - v1).cross(v3 - v1);
+        output_normals[i1] += face_normal;
+        output_normals[i2] += face_normal;
+        output_normals[i3] += face_normal;
+    }
+    for(int i = 0; i < output_normals.size(); ++i) {
+        if (output_normals[i].length_squared() < 1e-8f) {
+            output_normals[i] = Vector3(0, 1, 0);
+        } else {
+            output_normals[i] = output_normals[i].normalized();
+        }
+    }
+
+    // 4. Generate horizontal planar UVs
+    PackedVector2Array output_uvs;
+    output_uvs.resize(output_vertices.size());
+    float uv_scale = voxel_size > 0 ? voxel_size : 1.0f;
+    for(int i = 0; i < output_vertices.size(); ++i) {
+        output_uvs[i] = Vector2(output_vertices[i].x / uv_scale, output_vertices[i].z / uv_scale);
+    }
+
+    // 5. Build ArrayMesh
+    Ref<ArrayMesh> liquid_arr_mesh;
+    liquid_arr_mesh.instantiate();
+
+    Array arrays;
+    arrays.resize(Mesh::ARRAY_MAX);
+    arrays[Mesh::ARRAY_VERTEX] = output_vertices;
+    arrays[Mesh::ARRAY_NORMAL] = output_normals;
+    arrays[Mesh::ARRAY_INDEX] = output_triangles;
+    arrays[Mesh::ARRAY_TEX_UV] = output_uvs;
+
+    liquid_arr_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
+
+    // 6. Spawn LiquidMesh child node
+    MeshInstance3D* liquid_mesh_node = memnew(MeshInstance3D);
+    liquid_mesh_node->set_name("LiquidMesh");
+    add_child(liquid_mesh_node);
+    liquid_mesh_node->set_owner(get_owner());
+    liquid_mesh_node->set_mesh(liquid_arr_mesh);
+    if (liquid_material.is_valid()) {
+        liquid_mesh_node->set_material_override(liquid_material);
+    }
+
+    // 7. Spawn optional swimming trigger Area3D
+    if (generate_liquid_trigger) {
+        Area3D* area = memnew(Area3D);
+        area->set_name("LiquidTrigger");
+        add_child(area);
+        area->set_owner(get_owner());
+
+        CollisionShape3D* shape_node = memnew(CollisionShape3D);
+        shape_node->set_name("CollisionShape3D");
+        area->add_child(shape_node);
+        shape_node->set_owner(get_owner());
+
+        Ref<ConcavePolygonShape3D> liquid_trigger_shape;
+        liquid_trigger_shape.instantiate();
+
+        PackedVector3Array faces;
+        faces.resize(output_triangles.size());
+        for (int i = 0; i < output_triangles.size(); ++i) {
+            faces[i] = output_vertices[output_triangles[i]];
+        }
+        liquid_trigger_shape->set_faces(faces);
+        shape_node->set_shape(liquid_trigger_shape);
+    }
+}
 
 } // namespace godot

@@ -70,6 +70,13 @@ const NODE_CATALOGUE = {
 		"inputs": [{"name": "Gen Context", "type": 2}],
 		"outputs": [{"name": "Gen Context", "type": 2}]
 	},
+	"Liquid Flooder": {
+		"class": "UnderGenLiquidFloodNode",
+		"color": Color(0.1, 0.5, 0.7),
+		"description": "Floods empty cavern space with liquid material per zone or per point.",
+		"inputs": [{"name": "Gen Context", "type": 2}, {"name": "Point Set", "type": 3}],
+		"outputs": [{"name": "Gen Context", "type": 2}]
+	},
 	"Surface Sampler": {
 		"class": "UnderGenSurfaceSamplerNode",
 		"color": Color(0.8, 0.6, 0.2),

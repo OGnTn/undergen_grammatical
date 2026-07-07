@@ -259,17 +259,14 @@ void UnderGenWorld3D::_run_generation_async(int64_t p_seed) {
         }
     }
 
-    // Propagate surface threshold to placer node(s) in the pipeline
+    // Propagate settings (surface threshold and voxel size) to all nodes in the pipeline
     if (pipeline.is_valid()) {
         Array nodes = pipeline->get_nodes();
         for (int i = 0; i < nodes.size(); ++i) {
             Ref<UnderGenNode> node = nodes[i];
             if (node.is_null()) continue;
-            UnderGenBSPPlacerNode *placer_node =
-                Object::cast_to<UnderGenBSPPlacerNode>(node.ptr());
-            if (placer_node) {
-                placer_node->set_surface_threshold(surface_threshold);
-            }
+            node->set("surface_threshold", surface_threshold);
+            node->set("voxel_size", voxel_size);
         }
     }
 

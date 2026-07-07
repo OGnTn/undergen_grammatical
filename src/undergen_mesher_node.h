@@ -21,6 +21,8 @@ private:
     bool generate_occluder = false;
     TypedArray<Material> terrain_materials;
     Ref<Material> liquid_material;
+    int liquid_material_id = 2;
+    bool generate_liquid_trigger = true;
     Ref<RDShaderFile> compute_shader;
 
 protected:
@@ -42,6 +44,10 @@ public:
     TypedArray<Material> get_terrain_materials() const;
     void set_liquid_material(const Ref<Material> &p_material);
     Ref<Material> get_liquid_material() const;
+    void set_liquid_material_id(int p_id);
+    int get_liquid_material_id() const;
+    void set_generate_liquid_trigger(bool p_enabled);
+    bool get_generate_liquid_trigger() const;
     void set_compute_shader(const Ref<RDShaderFile> &p_shader);
     Ref<RDShaderFile> get_compute_shader() const;
 
