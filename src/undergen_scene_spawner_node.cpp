@@ -28,12 +28,8 @@ void UnderGenSceneSpawnerNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_random_seed"), &UnderGenSceneSpawnerNode::get_random_seed);
     ClassDB::bind_method(D_METHOD("set_consume_points", "consume"), &UnderGenSceneSpawnerNode::set_consume_points);
     ClassDB::bind_method(D_METHOD("get_consume_points"), &UnderGenSceneSpawnerNode::get_consume_points);
-    ClassDB::bind_method(D_METHOD("set_parent_node", "parent_node"), &UnderGenSceneSpawnerNode::set_parent_node);
-    ClassDB::bind_method(D_METHOD("get_parent_node"), &UnderGenSceneSpawnerNode::get_parent_node);
     ClassDB::bind_method(D_METHOD("set_force_readable_names", "force"), &UnderGenSceneSpawnerNode::set_force_readable_names);
     ClassDB::bind_method(D_METHOD("get_force_readable_names"), &UnderGenSceneSpawnerNode::get_force_readable_names);
-    ClassDB::bind_method(D_METHOD("set_multiplayer_spawner", "path"), &UnderGenSceneSpawnerNode::set_multiplayer_spawner);
-    ClassDB::bind_method(D_METHOD("get_multiplayer_spawner"), &UnderGenSceneSpawnerNode::get_multiplayer_spawner);
     ClassDB::bind_method(D_METHOD("spawn_scenes_with_parent", "inputs", "parent_node"), &UnderGenSceneSpawnerNode::spawn_scenes_with_parent);
 
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "scene_to_spawn", PROPERTY_HINT_RESOURCE_TYPE, "PackedScene"), "set_scene_to_spawn", "get_scene_to_spawn");
@@ -44,9 +40,7 @@ void UnderGenSceneSpawnerNode::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shuffle_points"), "set_shuffle_points", "get_shuffle_points");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "random_seed"), "set_random_seed", "get_random_seed");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "consume_points"), "set_consume_points", "get_consume_points");
-    ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "parent_node"), "set_parent_node", "get_parent_node");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "force_readable_names"), "set_force_readable_names", "get_force_readable_names");
-    ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "multiplayer_spawner"), "set_multiplayer_spawner", "get_multiplayer_spawner");
 }
 
 void UnderGenSceneSpawnerNode::set_scene_to_spawn(const Variant &p_scene) {
@@ -78,46 +72,21 @@ void UnderGenSceneSpawnerNode::set_random_seed(int64_t p_seed) { random_seed = p
 int64_t UnderGenSceneSpawnerNode::get_random_seed() const { return random_seed; }
 void UnderGenSceneSpawnerNode::set_consume_points(bool p_consume) { consume_points = p_consume; }
 bool UnderGenSceneSpawnerNode::get_consume_points() const { return consume_points; }
-void UnderGenSceneSpawnerNode::set_parent_node(const NodePath &p_path) { parent_node_path = p_path; }
-NodePath UnderGenSceneSpawnerNode::get_parent_node() const { return parent_node_path; }
 void UnderGenSceneSpawnerNode::set_force_readable_names(bool p_force) { force_readable_names = p_force; }
 bool UnderGenSceneSpawnerNode::get_force_readable_names() const { return force_readable_names; }
-void UnderGenSceneSpawnerNode::set_multiplayer_spawner(const NodePath &p_path) { multiplayer_spawner_path = p_path; }
-NodePath UnderGenSceneSpawnerNode::get_multiplayer_spawner() const { return multiplayer_spawner_path; }
 
 void UnderGenSceneSpawnerNode::_execute(const Dictionary &inputs, Dictionary &outputs) {
     // Passthrough - actual spawning requires scene tree, see execute_with_parent
     outputs[0] = inputs.get(0, Ref<UnderGenPointSet>());
 }
 
-void UnderGenSceneSpawnerNode::execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node3D* parent_node) {
-    if (!parent_node) {
-        UtilityFunctions::printerr("UnderGenSceneSpawnerNode: No parent node.");
+void UnderGenSceneSpawnerNode::execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node *target_parent, MultiplayerSpawner *multiplayer_spawner) {
+    if (!target_parent) {
+        UtilityFunctions::printerr("UnderGenSceneSpawnerNode: No target parent node.");
         return;
     }
 
-    Node *target_parent = parent_node;
-    if (!parent_node_path.is_empty()) {
-        Node *custom_parent = parent_node->get_node_or_null(parent_node_path);
-        if (custom_parent) {
-            target_parent = custom_parent;
-        } else {
-            UtilityFunctions::printerr("UnderGenSceneSpawnerNode: Custom parent node not found at path: ", parent_node_path);
-        }
-    }
-
-    MultiplayerSpawner *spawner = nullptr;
-    if (!multiplayer_spawner_path.is_empty()) {
-        Node *spawner_node = parent_node->get_node_or_null(multiplayer_spawner_path);
-        if (spawner_node) {
-            spawner = Object::cast_to<MultiplayerSpawner>(spawner_node);
-            if (!spawner) {
-                UtilityFunctions::printerr("UnderGenSceneSpawnerNode: Node at multiplayer_spawner path is not a MultiplayerSpawner.");
-            }
-        } else {
-            UtilityFunctions::printerr("UnderGenSceneSpawnerNode: MultiplayerSpawner not found at path: ", multiplayer_spawner_path);
-        }
-    }
+    MultiplayerSpawner *spawner = multiplayer_spawner;
 
     Ref<UnderGenPointSet> point_set = inputs.get(0, Ref<UnderGenPointSet>());
     if (point_set.is_null()) {
@@ -232,13 +201,8 @@ void UnderGenSceneSpawnerNode::spawn_scenes_with_parent(const Dictionary &inputs
         UtilityFunctions::printerr("UnderGenSceneSpawnerNode::spawn_scenes_with_parent: parent_node is null.");
         return;
     }
-    Node3D *parent_3d = Object::cast_to<Node3D>(parent_node);
-    if (!parent_3d) {
-        UtilityFunctions::printerr("UnderGenSceneSpawnerNode::spawn_scenes_with_parent: parent_node is not a Node3D.");
-        return;
-    }
     Dictionary dummy_outputs;
-    execute_with_parent(inputs, dummy_outputs, parent_3d);
+    execute_with_parent(inputs, dummy_outputs, parent_node, nullptr);
 }
 
 } // namespace godot
