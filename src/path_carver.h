@@ -32,6 +32,7 @@ public:
     float path_wobble_magnitude = 0.0f;
     float path_wobble_frequency = 0.2f;
     bool connect_from_ground_level = false;
+    bool dont_carve_inside_rooms = false;
 
     // AStar specific
     int dungeon_path_algorithm = ALGO_ASTAR;
@@ -54,6 +55,7 @@ public:
 private:
     float WORLD_OPEN_VALUE = 0.0f;
     float WORLD_SOLID_VALUE = 1.0f;
+    const std::vector<ResolvedRoom>* rooms_ptr = nullptr;
 
     struct DungeonNode {
         Vector3i pos;

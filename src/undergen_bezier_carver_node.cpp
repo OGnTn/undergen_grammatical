@@ -48,6 +48,10 @@ void UnderGenBezierCarverNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_connect_from_ground_level"), &UnderGenBezierCarverNode::get_connect_from_ground_level);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "path_connect_from_ground_level"), "set_connect_from_ground_level", "get_connect_from_ground_level");
 
+    ClassDB::bind_method(D_METHOD("set_dont_carve_inside_rooms", "enabled"), &UnderGenBezierCarverNode::set_dont_carve_inside_rooms);
+    ClassDB::bind_method(D_METHOD("get_dont_carve_inside_rooms"), &UnderGenBezierCarverNode::get_dont_carve_inside_rooms);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "path_dont_carve_inside_rooms"), "set_dont_carve_inside_rooms", "get_dont_carve_inside_rooms");
+
     // Organic Cave Shape Group
     ADD_GROUP("Cave Shape", "cave_");
     ClassDB::bind_method(D_METHOD("set_cave_ruggedness", "value"), &UnderGenBezierCarverNode::set_cave_ruggedness);
@@ -94,6 +98,8 @@ void UnderGenBezierCarverNode::set_path_wobble_frequency(float p_frequency) { pa
 float UnderGenBezierCarverNode::get_path_wobble_frequency() const { return path_wobble_frequency; }
 void UnderGenBezierCarverNode::set_connect_from_ground_level(bool p_enabled) { connect_from_ground_level = p_enabled; }
 bool UnderGenBezierCarverNode::get_connect_from_ground_level() const { return connect_from_ground_level; }
+void UnderGenBezierCarverNode::set_dont_carve_inside_rooms(bool p_enabled) { dont_carve_inside_rooms = p_enabled; }
+bool UnderGenBezierCarverNode::get_dont_carve_inside_rooms() const { return dont_carve_inside_rooms; }
 
 // Organic Cave Shape getters/setters
 void UnderGenBezierCarverNode::set_cave_ruggedness(float p_value) { cave_ruggedness = p_value; }
@@ -176,6 +182,7 @@ void UnderGenBezierCarverNode::_execute(const Dictionary &inputs, Dictionary &ou
     carver.path_wobble_magnitude = path_wobble_magnitude;
     carver.path_wobble_frequency = path_wobble_frequency;
     carver.connect_from_ground_level = connect_from_ground_level;
+    carver.dont_carve_inside_rooms = dont_carve_inside_rooms;
 
     // Organic cave shape params
     carver.cave_ruggedness = cave_ruggedness;

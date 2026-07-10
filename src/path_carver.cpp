@@ -160,6 +160,7 @@ void PathCarver::connect_rooms(DensityGrid* grid, RandomNumberGenerator* rng, Re
 
 // Updated signature
 void PathCarver::create_paths_from_edges(DensityGrid* grid, RandomNumberGenerator* rng, Ref<FastNoiseLite> wobble_noise, const std::vector<ResolvedRoom>& rooms, const std::vector<ResolvedEdge>& edges) {
+    rooms_ptr = &rooms;
     for(const auto &edge : edges) {
         int z_id = grid->register_zone_name(edge.type);
         current_carving_zone_id = z_id;
@@ -302,6 +303,7 @@ void PathCarver::create_paths_from_edges(DensityGrid* grid, RandomNumberGenerato
         }
     }
     current_carving_zone_id = 0;
+    rooms_ptr = nullptr;
 }
 
 void PathCarver::_carve_bezier_path(DensityGrid* grid, RandomNumberGenerator* rng, Ref<FastNoiseLite> wobble_noise, const Vector3 &start, const Vector3 &end, const Vector3 &start_normal, const Vector3 &end_normal) {
@@ -507,11 +509,26 @@ void PathCarver::_carve_complex_brush(DensityGrid* grid, const Vector3i &center,
                     if (pos.x > 0 && pos.x < gsx - 1 &&
                         pos.y > 0 && pos.y < gsy - 1 &&
                         pos.z > 0 && pos.z < gsz - 1) {
-                        grid->set_cell(pos, WORLD_OPEN_VALUE);
-                        // Manual boundary check for Zone safety
-                        if (current_carving_zone_id > 0) {
-                            if (grid->get_zone_at(pos) == 0) {
-                                grid->set_zone_at(pos, current_carving_zone_id);
+                        
+                        bool is_strictly_inside_room = false;
+                        if (dont_carve_inside_rooms && rooms_ptr != nullptr) {
+                            for (const auto& room : *rooms_ptr) {
+                                if (pos.x > room.position.x && pos.x < room.position.x + room.size.x - 1 &&
+                                    pos.y > room.position.y && pos.y < room.position.y + room.size.y - 1 &&
+                                    pos.z > room.position.z && pos.z < room.position.z + room.size.z - 1) {
+                                    is_strictly_inside_room = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!is_strictly_inside_room) {
+                            grid->set_cell(pos, WORLD_OPEN_VALUE);
+                            // Manual boundary check for Zone safety
+                            if (current_carving_zone_id > 0) {
+                                if (grid->get_zone_at(pos) == 0) {
+                                    grid->set_zone_at(pos, current_carving_zone_id);
+                                }
                             }
                         }
                     }
