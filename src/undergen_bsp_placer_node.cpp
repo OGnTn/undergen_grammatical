@@ -1,8 +1,11 @@
 #include "undergen_bsp_placer_node.h"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/math.hpp>
+#include <godot_cpp/classes/file_access.hpp>
+#include "ogt_vox.h"
 #include <vector>
 #include <map>
+#include <algorithm>
 
 namespace godot {
 
@@ -27,6 +30,8 @@ void UnderGenBSPPlacerNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_margin_y"), &UnderGenBSPPlacerNode::get_margin_y);
     ClassDB::bind_method(D_METHOD("set_margin_z", "margin_z"), &UnderGenBSPPlacerNode::set_margin_z);
     ClassDB::bind_method(D_METHOD("get_margin_z"), &UnderGenBSPPlacerNode::get_margin_z);
+    ClassDB::bind_method(D_METHOD("set_spread_ratio", "ratio"), &UnderGenBSPPlacerNode::set_spread_ratio);
+    ClassDB::bind_method(D_METHOD("get_spread_ratio"), &UnderGenBSPPlacerNode::get_spread_ratio);
 
     ADD_PROPERTY(PropertyInfo(Variant::INT, "grid_size_x"), "set_grid_size_x", "get_grid_size_x");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "grid_size_y"), "set_grid_size_y", "get_grid_size_y");
@@ -35,6 +40,7 @@ void UnderGenBSPPlacerNode::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::INT, "margin_y"), "set_margin_y", "get_margin_y");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "margin_z"), "set_margin_z", "get_margin_z");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "surface_threshold"), "set_surface_threshold", "get_surface_threshold");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "spread_ratio", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_spread_ratio", "get_spread_ratio");
 }
 
 void UnderGenBSPPlacerNode::set_grid_size_x(int p_x) { grid_size_x = p_x; }
@@ -52,6 +58,9 @@ void UnderGenBSPPlacerNode::set_margin_y(int p_y) { margin_y = p_y; }
 int UnderGenBSPPlacerNode::get_margin_y() const { return margin_y; }
 void UnderGenBSPPlacerNode::set_margin_z(int p_z) { margin_z = p_z; }
 int UnderGenBSPPlacerNode::get_margin_z() const { return margin_z; }
+
+void UnderGenBSPPlacerNode::set_spread_ratio(float p_ratio) { spread_ratio = p_ratio; }
+float UnderGenBSPPlacerNode::get_spread_ratio() const { return spread_ratio; }
 
 void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outputs) {
     // Port 0: Seed (int)
@@ -79,14 +88,76 @@ void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outpu
         r.type = node.get("type", "generic");
         r.vox_path = node.get("vox_path", "");
         r.exclude_from_smoothing = node.get("exclude_from_smoothing", false);
+        r.exclude_from_warping = node.get("exclude_from_warping", false);
         
         Vector3i min_s = node.get("min_size", Vector3i(5, 5, 5));
         Vector3i max_s = node.get("max_size", Vector3i(10, 10, 10));
-        r.size = Vector3i(
-            rng->randi_range(min_s.x, max_s.x),
-            rng->randi_range(min_s.y, max_s.y),
-            rng->randi_range(min_s.z, max_s.z)
-        );
+        bool size_loaded = false;
+
+        if (!r.vox_path.is_empty()) {
+            Ref<FileAccess> file = FileAccess::open(r.vox_path, FileAccess::READ);
+            if (file.is_valid()) {
+                uint64_t len = file->get_length();
+                PackedByteArray buf = file->get_buffer(len);
+                const ogt_vox_scene* scene = ogt_vox_read_scene(buf.ptr(), (uint32_t)len);
+                if (scene) {
+                    int scene_min_x = INT_MAX, scene_max_x = INT_MIN;
+                    int scene_min_y = INT_MAX, scene_max_y = INT_MIN;
+                    int scene_min_z = INT_MAX, scene_max_z = INT_MIN;
+                    bool has_visible_instances = false;
+
+                    for (uint32_t j = 0; j < scene->num_instances; ++j) {
+                        const ogt_vox_instance& inst = scene->instances[j];
+                        if (inst.hidden) continue;
+                        const ogt_vox_model* model = scene->models[inst.model_index];
+                        if (!model) continue;
+
+                        has_visible_instances = true;
+
+                        int offset_x = (int)inst.transform.m30;
+                        int offset_y = (int)inst.transform.m31;
+                        int offset_z = (int)inst.transform.m32;
+
+                        int inst_min_x = offset_x;
+                        int inst_max_x = offset_x + model->size_x;
+                        int inst_min_y = offset_z; // MV Z -> Godot Y
+                        int inst_max_y = offset_z + model->size_z;
+                        int inst_min_z = offset_y; // MV Y -> Godot Z
+                        int inst_max_z = offset_y + model->size_y;
+
+                        if (inst_min_x < scene_min_x) scene_min_x = inst_min_x;
+                        if (inst_max_x > scene_max_x) scene_max_x = inst_max_x;
+                        if (inst_min_y < scene_min_y) scene_min_y = inst_min_y;
+                        if (inst_max_y > scene_max_y) scene_max_y = inst_max_y;
+                        if (inst_min_z < scene_min_z) scene_min_z = inst_min_z;
+                        if (inst_max_z > scene_max_z) scene_max_z = inst_max_z;
+                    }
+
+                    if (has_visible_instances) {
+                        r.size = Vector3i(
+                            scene_max_x - scene_min_x,
+                            scene_max_y - scene_min_y,
+                            scene_max_z - scene_min_z
+                        );
+                        size_loaded = true;
+                        UtilityFunctions::print("UnderGenBSPPlacerNode: Loaded size for vox room \"", r.type, "\" from file: ", r.size);
+                    }
+                    ogt_vox_destroy_scene(scene);
+                } else {
+                    UtilityFunctions::printerr("UnderGenBSPPlacerNode: Failed to parse vox file for size: ", r.vox_path);
+                }
+            } else {
+                UtilityFunctions::printerr("UnderGenBSPPlacerNode: Failed to open vox file for size: ", r.vox_path);
+            }
+        }
+
+        if (!size_loaded) {
+            r.size = Vector3i(
+                rng->randi_range(min_s.x, max_s.x),
+                rng->randi_range(min_s.y, max_s.y),
+                rng->randi_range(min_s.z, max_s.z)
+            );
+        }
         
         // Parse Constraints
         Dictionary constraints = node.get("constraints", Dictionary());
@@ -185,29 +256,92 @@ void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outpu
                 leaves.push_back(c2);
             }
 
-            // Shuffle leaves
-            for (size_t i = 0; i < leaves.size(); ++i) {
-                int swap_idx = rng->randi_range(0, leaves.size() - 1);
-                GridAABB temp = leaves[i];
-                leaves[i] = leaves[swap_idx];
-                leaves[swap_idx] = temp;
+            // Separate fixed and unfixed rooms
+            std::vector<size_t> unfixed_room_indices;
+            for (size_t i = 0; i < processing_rooms.size(); ++i) {
+                if (!processing_rooms[i].is_fixed) {
+                    unfixed_room_indices.push_back(i);
+                }
             }
 
-            for (size_t i = 0; i < processing_rooms.size(); ++i) {
+            // Sort unfixed rooms by volume (descending)
+            std::sort(unfixed_room_indices.begin(), unfixed_room_indices.end(), [&](size_t a, size_t b) {
+                Vector3i sa = processing_rooms[a].size;
+                Vector3i sb = processing_rooms[b].size;
+                return (sa.x * sa.y * sa.z) > (sb.x * sb.y * sb.z);
+            });
+
+            // Sort leaves by volume (descending)
+            std::sort(leaves.begin(), leaves.end(), [](const GridAABB &a, const GridAABB &b) {
+                return a.volume() > b.volume();
+            });
+
+            Vector3i grid_center = grid->get_grid_dimensions() / 2;
+
+            for (size_t i = 0; i < unfixed_room_indices.size(); ++i) {
                 if (i >= leaves.size()) break;
                 
                 GridAABB leaf = leaves[i];
-                ResolvedRoom &room = processing_rooms[i];
-                
-                if (room.is_fixed) continue;
+                ResolvedRoom &room = processing_rooms[unfixed_room_indices[i]];
                 
                 int free_x = leaf.size.x - room.size.x;
                 int free_y = leaf.size.y - room.size.y;
                 int free_z = leaf.size.z - room.size.z;
                 
-                int offset_x = (free_x > 0) ? rng->randi_range(0, free_x) : free_x / 2;
-                int offset_y = (free_y > 0) ? rng->randi_range(0, free_y) : free_y / 2;
-                int offset_z = (free_z > 0) ? rng->randi_range(0, free_z) : free_z / 2;
+                int offset_x = free_x / 2;
+                int offset_y = free_y / 2;
+                int offset_z = free_z / 2;
+                
+                if (free_x > 0) {
+                    int o_rand = rng->randi_range(0, free_x);
+                    int o_ideal = grid_center.x - leaf.min.x - room.size.x / 2;
+                    int o_close = Math::clamp(o_ideal, 0, free_x);
+                    int c_min = leaf.min.x + room.size.x / 2;
+                    int c_max = leaf.min.x + free_x + room.size.x / 2;
+                    int o_far = (Math::abs(c_min - grid_center.x) > Math::abs(c_max - grid_center.x)) ? 0 : free_x;
+                    
+                    if (spread_ratio < 0.5f) {
+                        float t = spread_ratio * 2.0f;
+                        offset_x = (int)Math::round(Math::lerp((float)o_close, (float)o_rand, t));
+                    } else {
+                        float t = (spread_ratio - 0.5f) * 2.0f;
+                        offset_x = (int)Math::round(Math::lerp((float)o_rand, (float)o_far, t));
+                    }
+                }
+                
+                if (free_y > 0) {
+                    int o_rand = rng->randi_range(0, free_y);
+                    int o_ideal = grid_center.y - leaf.min.y - room.size.y / 2;
+                    int o_close = Math::clamp(o_ideal, 0, free_y);
+                    int c_min = leaf.min.y + room.size.y / 2;
+                    int c_max = leaf.min.y + free_y + room.size.y / 2;
+                    int o_far = (Math::abs(c_min - grid_center.y) > Math::abs(c_max - grid_center.y)) ? 0 : free_y;
+                    
+                    if (spread_ratio < 0.5f) {
+                        float t = spread_ratio * 2.0f;
+                        offset_y = (int)Math::round(Math::lerp((float)o_close, (float)o_rand, t));
+                    } else {
+                        float t = (spread_ratio - 0.5f) * 2.0f;
+                        offset_y = (int)Math::round(Math::lerp((float)o_rand, (float)o_far, t));
+                    }
+                }
+                
+                if (free_z > 0) {
+                    int o_rand = rng->randi_range(0, free_z);
+                    int o_ideal = grid_center.z - leaf.min.z - room.size.z / 2;
+                    int o_close = Math::clamp(o_ideal, 0, free_z);
+                    int c_min = leaf.min.z + room.size.z / 2;
+                    int c_max = leaf.min.z + free_z + room.size.z / 2;
+                    int o_far = (Math::abs(c_min - grid_center.z) > Math::abs(c_max - grid_center.z)) ? 0 : free_z;
+                    
+                    if (spread_ratio < 0.5f) {
+                        float t = spread_ratio * 2.0f;
+                        offset_z = (int)Math::round(Math::lerp((float)o_close, (float)o_rand, t));
+                    } else {
+                        float t = (spread_ratio - 0.5f) * 2.0f;
+                        offset_z = (int)Math::round(Math::lerp((float)o_rand, (float)o_far, t));
+                    }
+                }
                 
                 room.position = leaf.min + Vector3i(offset_x, offset_y, offset_z);
             }
@@ -243,6 +377,7 @@ void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outpu
         r_dict["size"] = room.size;
         r_dict["vox_path"] = room.vox_path;
         r_dict["exclude_from_smoothing"] = room.exclude_from_smoothing;
+        r_dict["exclude_from_warping"] = room.exclude_from_warping;
         r_dict["center"] = room.center();
         placed_rooms_array.append(r_dict);
     }

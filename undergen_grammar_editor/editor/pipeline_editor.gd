@@ -56,6 +56,13 @@ const NODE_CATALOGUE = {
 		"inputs": [{"name": "Gen Context", "type": 2}],
 		"outputs": [{"name": "Gen Context", "type": 2}]
 	},
+	"Grid Warper": {
+		"class": "UnderGenGridWarpNode",
+		"color": Color(0.15, 0.55, 0.45),
+		"description": "Applies 3D noise displacement (domain warping) to the density grid for organic shapes.",
+		"inputs": [{"name": "Gen Context", "type": 2}],
+		"outputs": [{"name": "Gen Context", "type": 2}]
+	},
 	"Vox Stamper": {
 		"class": "UnderGenVoxStampNode",
 		"color": Color(0.7, 0.5, 0.2),

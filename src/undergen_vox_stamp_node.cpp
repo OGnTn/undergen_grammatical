@@ -25,6 +25,8 @@ void UnderGenVoxStampNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_connection_palette_index"), &UnderGenVoxStampNode::get_connection_palette_index);
     ClassDB::bind_method(D_METHOD("set_exclude_from_smoothing", "exclude"), &UnderGenVoxStampNode::set_exclude_from_smoothing);
     ClassDB::bind_method(D_METHOD("get_exclude_from_smoothing"), &UnderGenVoxStampNode::get_exclude_from_smoothing);
+    ClassDB::bind_method(D_METHOD("set_exclude_from_warping", "exclude"), &UnderGenVoxStampNode::set_exclude_from_warping);
+    ClassDB::bind_method(D_METHOD("get_exclude_from_warping"), &UnderGenVoxStampNode::get_exclude_from_warping);
 
     ClassDB::bind_method(D_METHOD("set_vox_spawn_entries", "entries"), &UnderGenVoxStampNode::set_vox_spawn_entries);
     ClassDB::bind_method(D_METHOD("get_vox_spawn_entries"), &UnderGenVoxStampNode::get_vox_spawn_entries);
@@ -39,6 +41,7 @@ void UnderGenVoxStampNode::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "vox_inverse_density"), "set_vox_inverse_density", "get_vox_inverse_density");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "connection_palette_index"), "set_connection_palette_index", "get_connection_palette_index");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "exclude_from_smoothing"), "set_exclude_from_smoothing", "get_exclude_from_smoothing");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "exclude_from_warping"), "set_exclude_from_warping", "get_exclude_from_warping");
 
     // Exposed to editor
     ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "vox_spawn_entries", PROPERTY_HINT_TYPE_STRING,
@@ -214,6 +217,8 @@ void UnderGenVoxStampNode::set_connection_palette_index(int p_index) { connectio
 int UnderGenVoxStampNode::get_connection_palette_index() const { return connection_palette_index; }
 void UnderGenVoxStampNode::set_exclude_from_smoothing(bool p_exclude) { exclude_from_smoothing = p_exclude; emit_changed(); }
 bool UnderGenVoxStampNode::get_exclude_from_smoothing() const { return exclude_from_smoothing; }
+void UnderGenVoxStampNode::set_exclude_from_warping(bool p_exclude) { exclude_from_warping = p_exclude; emit_changed(); }
+bool UnderGenVoxStampNode::get_exclude_from_warping() const { return exclude_from_warping; }
 
 const ogt_vox_scene* UnderGenVoxStampNode::_load_vox(const String &path) {
     if (path.is_empty()) return nullptr;
@@ -435,6 +440,7 @@ void UnderGenVoxStampNode::_execute(const Dictionary &inputs, Dictionary &output
         room.size = r_dict.get("size", Vector3i());
         room.vox_path = vox_path;
         room.exclude_from_smoothing = r_dict.get("exclude_from_smoothing", false);
+        room.exclude_from_warping = r_dict.get("exclude_from_warping", false);
 
         const ogt_vox_scene* scene = _load_vox(vox_path);
         if (scene) {
@@ -444,6 +450,9 @@ void UnderGenVoxStampNode::_execute(const Dictionary &inputs, Dictionary &output
             r_dict["connection_points"] = room_connections;
             if (exclude_from_smoothing || room.exclude_from_smoothing) {
                 r_dict["exclude_from_smoothing"] = true;
+            }
+            if (exclude_from_warping || room.exclude_from_warping) {
+                r_dict["exclude_from_warping"] = true;
             }
         } else {
             UtilityFunctions::printerr("UnderGenVoxStampNode: Failed to load scene for vox path: '", vox_path, "'");

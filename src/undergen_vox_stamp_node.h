@@ -23,6 +23,7 @@ private:
     bool vox_inverse_density = false;
     int connection_palette_index = -1;
     bool exclude_from_smoothing = false;
+    bool exclude_from_warping = false;
 
     TypedArray<VoxSpawnEntry> vox_spawn_entries;
     TypedArray<VoxMaterialEntry> vox_material_entries;
@@ -55,6 +56,8 @@ public:
     int get_connection_palette_index() const;
     void set_exclude_from_smoothing(bool p_exclude);
     bool get_exclude_from_smoothing() const;
+    void set_exclude_from_warping(bool p_exclude);
+    bool get_exclude_from_warping() const;
 
     void set_vox_spawn_entries(const TypedArray<VoxSpawnEntry> &p_entries);
     TypedArray<VoxSpawnEntry> get_vox_spawn_entries() const;

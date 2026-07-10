@@ -370,6 +370,7 @@ func _do_import_json(path: String):
 		room.max_size = rt.max_size
 		room.vox_path = rt.vox_path
 		room.exclude_from_smoothing = rt.exclude_from_smoothing
+		room.exclude_from_warping = rt.exclude_from_warping
 		res.room_types.append(room)
 
 	for rule in spec.rules:
@@ -445,6 +446,8 @@ func _grammar_to_dictionary() -> Dictionary:
 			r["vox_path"] = rt.vox_path
 		if rt.exclude_from_smoothing:
 			r["exclude_from_smoothing"] = rt.exclude_from_smoothing
+		if rt.exclude_from_warping:
+			r["exclude_from_warping"] = rt.exclude_from_warping
 		rt_arr.append(r)
 	d["room_types"] = rt_arr
 
@@ -625,6 +628,12 @@ func _load_pal_inspector(rt: RoomType):
 	smooth_cb.button_pressed = rt.exclude_from_smoothing
 	smooth_cb.toggled.connect(func(pressed): rt.exclude_from_smoothing = pressed)
 	_pal_insp_box.add_child(smooth_cb)
+
+	var warp_cb = CheckBox.new()
+	warp_cb.text = "Exclude from warping"
+	warp_cb.button_pressed = rt.exclude_from_warping
+	warp_cb.toggled.connect(func(pressed): rt.exclude_from_warping = pressed)
+	_pal_insp_box.add_child(warp_cb)
 
 
 func _open_vox_picker(target_edit: LineEdit, rt: RoomType):

@@ -26,6 +26,7 @@ struct ResolvedRoom {
     String vox_path;
     Array connection_points;
     bool exclude_from_smoothing = false;
+    bool exclude_from_warping = false;
 
     Vector3 center() const { return Vector3(position) + Vector3(size) / 2.0; }
 };

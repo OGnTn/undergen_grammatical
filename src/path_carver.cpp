@@ -395,16 +395,20 @@ void PathCarver::_carve_bezier_path(DensityGrid* grid, RandomNumberGenerator* rn
                 final_point.z += wobble_noise->get_noise_1d(point_on_curve.z * path_wobble_frequency + 2000.0f) * path_wobble_magnitude;
             }
             
-            // Varying width noise
-            int eff_radius = path_brush_min_radius;
+            // Smoothly transition from min_radius at endpoints to max_radius at midpoint
+            float total_curves = static_cast<float>(path_nodes.size() - 1);
+            float P = (static_cast<float>(j) + t) / total_curves;
+            float F = 2.0f * Math::min(P, 1.0f - P);
+            float base_radius = (float)path_brush_min_radius + F * (float)(path_brush_max_radius - path_brush_min_radius);
+
+            int eff_radius;
             if (cave_width_noise > 0.001f && wobble_noise.is_valid()) {
                  float w_noise = wobble_noise->get_noise_1d(static_cast<float>(k) * 0.1f + j * 10.0f); // vary along path
-                 eff_radius = (int)((float)path_brush_min_radius * (1.0f + w_noise * cave_width_noise));
-                 if (eff_radius < 1) eff_radius = 1;
+                 eff_radius = (int)(base_radius * (1.0f + w_noise * cave_width_noise));
             } else {
-                 // Use range if no varying noise, otherwise single radius
-                 eff_radius = (path_brush_min_radius == path_brush_max_radius) ? path_brush_min_radius : rng->randi_range(path_brush_min_radius, path_brush_max_radius);
+                 eff_radius = (int)Math::round(base_radius);
             }
+            if (eff_radius < 1) eff_radius = 1;
 
             _carve_complex_brush(grid, Vector3i(final_point), eff_radius, wobble_noise);
         }
