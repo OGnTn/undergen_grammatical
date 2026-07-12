@@ -179,172 +179,118 @@ void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outpu
         processing_rooms.push_back(r);
     }
 
-    // Run BSP Placement
+    // Run Collision-Free Random Placement
     if (!processing_rooms.empty()) {
-        struct GridAABB {
-            Vector3i min;
-            Vector3i size;
-            int volume() const { return size.x * size.y * size.z; }
-        };
-
-        // Clamp margins to leave at least 6 voxels of center space (min_child_size = 6)
         int safe_margin_x = Math::clamp(margin_x, 1, Math::max(1, (grid_size_x - 6) / 2));
         int safe_margin_y = Math::clamp(margin_y, 1, Math::max(1, (grid_size_y - 6) / 2));
         int safe_margin_z = Math::clamp(margin_z, 1, Math::max(1, (grid_size_z - 6) / 2));
 
-        GridAABB root;
-        root.min = Vector3i(safe_margin_x, safe_margin_y, safe_margin_z);
-        root.size = Vector3i(grid_size_x - safe_margin_x * 2, grid_size_y - safe_margin_y * 2, grid_size_z - safe_margin_z * 2);
+        Vector3i grid_center = grid->get_grid_dimensions() / 2;
 
-        if (root.size.x > 0 && root.size.y > 0 && root.size.z > 0) {
-            std::vector<GridAABB> leaves;
-            leaves.push_back(root);
+        // Separate fixed and unfixed rooms
+        std::vector<size_t> fixed_room_indices;
+        std::vector<size_t> unfixed_room_indices;
+        for (size_t i = 0; i < processing_rooms.size(); ++i) {
+            if (processing_rooms[i].is_fixed) {
+                fixed_room_indices.push_back(i);
+            } else {
+                unfixed_room_indices.push_back(i);
+            }
+        }
 
-            int rooms_needed = processing_rooms.size();
-            int safety_max = 10000;
-            int iterations = 0;
+        // Sort unfixed rooms by volume (descending) so we place the largest/hardest-to-fit rooms first
+        std::sort(unfixed_room_indices.begin(), unfixed_room_indices.end(), [&](size_t a, size_t b) {
+            Vector3i sa = processing_rooms[a].size;
+            Vector3i sb = processing_rooms[b].size;
+            return (sa.x * sa.y * sa.z) > (sb.x * sb.y * sb.z);
+        });
 
-            while (leaves.size() < rooms_needed && iterations < safety_max) {
-                iterations++;
-                int best_idx = -1;
-                int max_vol = -1;
-                
-                for (size_t i = 0; i < leaves.size(); ++i) {
-                    int vol = leaves[i].volume();
-                    if (vol > max_vol) {
-                        max_vol = vol;
-                        best_idx = i;
+        // We will maintain a list of placed room indices to check for overlaps
+        std::vector<size_t> placed_room_indices = fixed_room_indices;
+
+        for (size_t idx : unfixed_room_indices) {
+            ResolvedRoom &room = processing_rooms[idx];
+
+            Vector3i min_bounds(safe_margin_x, safe_margin_y, safe_margin_z);
+            Vector3i max_bounds(
+                grid_size_x - safe_margin_x - room.size.x,
+                grid_size_y - safe_margin_y - room.size.y,
+                grid_size_z - safe_margin_z - room.size.z
+            );
+
+            // Generate candidates using dynamic spacing to prevent overlaps
+            std::vector<Vector3i> candidates;
+            int current_spacing = 8;
+
+            while (candidates.empty() && current_spacing >= 0) {
+                for (int attempt = 0; attempt < 1000; ++attempt) {
+                    int rx = (max_bounds.x > min_bounds.x) ? rng->randi_range(min_bounds.x, max_bounds.x) : min_bounds.x;
+                    int ry = (max_bounds.y > min_bounds.y) ? rng->randi_range(min_bounds.y, max_bounds.y) : min_bounds.y;
+                    int rz = (max_bounds.z > min_bounds.z) ? rng->randi_range(min_bounds.z, max_bounds.z) : min_bounds.z;
+                    Vector3i proposed_pos(rx, ry, rz);
+
+                    bool overlaps = false;
+                    for (size_t p_idx : placed_room_indices) {
+                        const ResolvedRoom &placed = processing_rooms[p_idx];
+                        bool overlap_x = (proposed_pos.x - current_spacing < placed.position.x + placed.size.x) &&
+                                         (proposed_pos.x + room.size.x + current_spacing > placed.position.x);
+                        bool overlap_y = (proposed_pos.y - current_spacing < placed.position.y + placed.size.y) &&
+                                         (proposed_pos.y + room.size.y + current_spacing > placed.position.y);
+                        bool overlap_z = (proposed_pos.z - current_spacing < placed.position.z + placed.size.z) &&
+                                         (proposed_pos.z + room.size.z + current_spacing > placed.position.z);
+                        if (overlap_x && overlap_y && overlap_z) {
+                            overlaps = true;
+                            break;
+                        }
+                    }
+
+                    if (!overlaps) {
+                        candidates.push_back(proposed_pos);
+                        if (candidates.size() >= 30) {
+                            break;
+                        }
                     }
                 }
-                
-                if (best_idx == -1) break;
-                
-                GridAABB current = leaves[best_idx];
-                int axis = 0;
-                if (current.size.y > current.size.x && current.size.y > current.size.z) axis = 1;
-                else if (current.size.z > current.size.x) axis = 2;
-                
-                if (rng->randf() > 0.8) axis = rng->randi() % 3;
 
-                int min_child_size = 6;
-                int current_len = (axis == 0) ? current.size.x : (axis == 1) ? current.size.y : current.size.z;
-                
-                if (current_len < min_child_size * 2) {
-                    break;
+                if (candidates.empty()) {
+                    current_spacing -= 2;
                 }
+            }
 
-                int split_pos = rng->randi_range(min_child_size, current_len - min_child_size);
-                GridAABB c1 = current;
-                GridAABB c2 = current;
-                
-                if (axis == 0) {
-                    c1.size.x = split_pos;
-                    c2.min.x += split_pos;
-                    c2.size.x -= split_pos;
-                } else if (axis == 1) {
-                    c1.size.y = split_pos;
-                    c2.min.y += split_pos;
-                    c2.size.y -= split_pos;
+            Vector3i chosen_pos;
+            if (!candidates.empty()) {
+                // Sort candidates by their distance to the center of the grid
+                std::sort(candidates.begin(), candidates.end(), [&](const Vector3i &a, const Vector3i &b) {
+                    Vector3 center_a(a.x + room.size.x / 2.0f, a.y + room.size.y / 2.0f, a.z + room.size.z / 2.0f);
+                    Vector3 center_b(b.x + room.size.x / 2.0f, b.y + room.size.y / 2.0f, b.z + room.size.z / 2.0f);
+                    Vector3 center_grid(grid_center.x, grid_center.y, grid_center.z);
+                    return center_a.distance_to(center_grid) < center_b.distance_to(center_grid);
+                });
+
+                float t = Math::abs(spread_ratio - 0.5f) * 2.0f;
+                int chosen_idx = 0;
+                if (spread_ratio < 0.5f) {
+                    // Blend between a random candidate and the one closest to the center (index 0)
+                    int rand_idx = rng->randi() % candidates.size();
+                    chosen_idx = (int)Math::round(Math::lerp((float)rand_idx, 0.0f, t));
                 } else {
-                    c1.size.z = split_pos;
-                    c2.min.z += split_pos;
-                    c2.size.z -= split_pos;
+                    // Blend between a random candidate and the one furthest from the center (last index)
+                    int rand_idx = rng->randi() % candidates.size();
+                    chosen_idx = (int)Math::round(Math::lerp((float)rand_idx, (float)(candidates.size() - 1), t));
                 }
-                
-                leaves.erase(leaves.begin() + best_idx);
-                leaves.push_back(c1);
-                leaves.push_back(c2);
+                chosen_pos = candidates[chosen_idx];
+            } else {
+                // Complete fallback
+                int rx = (max_bounds.x > min_bounds.x) ? rng->randi_range(min_bounds.x, max_bounds.x) : min_bounds.x;
+                int ry = (max_bounds.y > min_bounds.y) ? rng->randi_range(min_bounds.y, max_bounds.y) : min_bounds.y;
+                int rz = (max_bounds.z > min_bounds.z) ? rng->randi_range(min_bounds.z, max_bounds.z) : min_bounds.z;
+                chosen_pos = Vector3i(rx, ry, rz);
+                UtilityFunctions::printerr("UnderGenBSPPlacerNode: Placement fallback (overlap) for room \"", room.type, "\" (", room.id, ")");
             }
 
-            // Separate fixed and unfixed rooms
-            std::vector<size_t> unfixed_room_indices;
-            for (size_t i = 0; i < processing_rooms.size(); ++i) {
-                if (!processing_rooms[i].is_fixed) {
-                    unfixed_room_indices.push_back(i);
-                }
-            }
-
-            // Sort unfixed rooms by volume (descending)
-            std::sort(unfixed_room_indices.begin(), unfixed_room_indices.end(), [&](size_t a, size_t b) {
-                Vector3i sa = processing_rooms[a].size;
-                Vector3i sb = processing_rooms[b].size;
-                return (sa.x * sa.y * sa.z) > (sb.x * sb.y * sb.z);
-            });
-
-            // Sort leaves by volume (descending)
-            std::sort(leaves.begin(), leaves.end(), [](const GridAABB &a, const GridAABB &b) {
-                return a.volume() > b.volume();
-            });
-
-            Vector3i grid_center = grid->get_grid_dimensions() / 2;
-
-            for (size_t i = 0; i < unfixed_room_indices.size(); ++i) {
-                if (i >= leaves.size()) break;
-                
-                GridAABB leaf = leaves[i];
-                ResolvedRoom &room = processing_rooms[unfixed_room_indices[i]];
-                
-                int free_x = leaf.size.x - room.size.x;
-                int free_y = leaf.size.y - room.size.y;
-                int free_z = leaf.size.z - room.size.z;
-                
-                int offset_x = free_x / 2;
-                int offset_y = free_y / 2;
-                int offset_z = free_z / 2;
-                
-                if (free_x > 0) {
-                    int o_rand = rng->randi_range(0, free_x);
-                    int o_ideal = grid_center.x - leaf.min.x - room.size.x / 2;
-                    int o_close = Math::clamp(o_ideal, 0, free_x);
-                    int c_min = leaf.min.x + room.size.x / 2;
-                    int c_max = leaf.min.x + free_x + room.size.x / 2;
-                    int o_far = (Math::abs(c_min - grid_center.x) > Math::abs(c_max - grid_center.x)) ? 0 : free_x;
-                    
-                    if (spread_ratio < 0.5f) {
-                        float t = spread_ratio * 2.0f;
-                        offset_x = (int)Math::round(Math::lerp((float)o_close, (float)o_rand, t));
-                    } else {
-                        float t = (spread_ratio - 0.5f) * 2.0f;
-                        offset_x = (int)Math::round(Math::lerp((float)o_rand, (float)o_far, t));
-                    }
-                }
-                
-                if (free_y > 0) {
-                    int o_rand = rng->randi_range(0, free_y);
-                    int o_ideal = grid_center.y - leaf.min.y - room.size.y / 2;
-                    int o_close = Math::clamp(o_ideal, 0, free_y);
-                    int c_min = leaf.min.y + room.size.y / 2;
-                    int c_max = leaf.min.y + free_y + room.size.y / 2;
-                    int o_far = (Math::abs(c_min - grid_center.y) > Math::abs(c_max - grid_center.y)) ? 0 : free_y;
-                    
-                    if (spread_ratio < 0.5f) {
-                        float t = spread_ratio * 2.0f;
-                        offset_y = (int)Math::round(Math::lerp((float)o_close, (float)o_rand, t));
-                    } else {
-                        float t = (spread_ratio - 0.5f) * 2.0f;
-                        offset_y = (int)Math::round(Math::lerp((float)o_rand, (float)o_far, t));
-                    }
-                }
-                
-                if (free_z > 0) {
-                    int o_rand = rng->randi_range(0, free_z);
-                    int o_ideal = grid_center.z - leaf.min.z - room.size.z / 2;
-                    int o_close = Math::clamp(o_ideal, 0, free_z);
-                    int c_min = leaf.min.z + room.size.z / 2;
-                    int c_max = leaf.min.z + free_z + room.size.z / 2;
-                    int o_far = (Math::abs(c_min - grid_center.z) > Math::abs(c_max - grid_center.z)) ? 0 : free_z;
-                    
-                    if (spread_ratio < 0.5f) {
-                        float t = spread_ratio * 2.0f;
-                        offset_z = (int)Math::round(Math::lerp((float)o_close, (float)o_rand, t));
-                    } else {
-                        float t = (spread_ratio - 0.5f) * 2.0f;
-                        offset_z = (int)Math::round(Math::lerp((float)o_rand, (float)o_far, t));
-                    }
-                }
-                
-                room.position = leaf.min + Vector3i(offset_x, offset_y, offset_z);
-            }
+            room.position = chosen_pos;
+            placed_room_indices.push_back(idx);
+            UtilityFunctions::print("UnderGenBSPPlacerNode: Room \"", room.type, "\" (", room.id, ") placed at ", room.position, " size ", room.size, " (spacing used: ", current_spacing, ")");
         }
     }
 
