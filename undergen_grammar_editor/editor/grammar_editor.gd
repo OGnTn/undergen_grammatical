@@ -47,6 +47,7 @@ var _cond_var_opt:  OptionButton
 var _cond_op_opt:   OptionButton
 var _cond_val_sp:   SpinBox
 var _zone_opt:      OptionButton
+var _zone_edit:     LineEdit
 var _actions_vbox:  VBoxContainer
 
 var _graph:         GraphEdit
@@ -735,7 +736,14 @@ func _build_rule_toolbar() -> Control:
 	r1.add_child(_mk("  New edge zone:"))
 	_zone_opt = OptionButton.new()
 	for z in ZONE_LABELS: _zone_opt.add_item(z)
+	_zone_opt.item_selected.connect(_on_zone_preset_selected)
 	r1.add_child(_zone_opt)
+	_zone_edit = LineEdit.new()
+	_zone_edit.text = ZONE_LABELS[0]
+	_zone_edit.placeholder_text = "zone_name"
+	_zone_edit.tooltip_text = "Zone name saved on newly created edges. Custom names are allowed."
+	_zone_edit.custom_minimum_size = Vector2(140, 0)
+	r1.add_child(_zone_edit)
 
 	# Row 2: Condition
 	var r2 = HBoxContainer.new(); vbox.add_child(r2)
@@ -1019,7 +1027,22 @@ func _clear_graph():
 
 func _on_connection_request(from_node, from_port, to_node, to_port):
 	_graph.connect_node(from_node, from_port, to_node, to_port)
-	_edge_meta[str(from_node)+"_"+str(to_node)] = _zone_opt.get_item_text(_zone_opt.selected)
+	_edge_meta[str(from_node)+"_"+str(to_node)] = _get_new_edge_zone()
+
+
+func _on_zone_preset_selected(index: int):
+	if _zone_edit and index >= 0:
+		_zone_edit.text = _zone_opt.get_item_text(index)
+
+
+func _get_new_edge_zone() -> String:
+	if _zone_edit:
+		var zone := _zone_edit.text.strip_edges()
+		if not zone.is_empty():
+			return zone
+	if _zone_opt and _zone_opt.selected >= 0:
+		return _zone_opt.get_item_text(_zone_opt.selected)
+	return "corridor"
 
 
 func _on_disconnection_request(from_node, from_port, to_node, to_port):
