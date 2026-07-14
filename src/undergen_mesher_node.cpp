@@ -38,6 +38,14 @@ void UnderGenMesherNode::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::INT, "liquid_material_id", PROPERTY_HINT_RANGE, "0,255,1"), "set_liquid_material_id", "get_liquid_material_id");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_liquid_trigger"), "set_generate_liquid_trigger", "get_generate_liquid_trigger");
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "compute_shader", PROPERTY_HINT_RESOURCE_TYPE, "RDShaderFile"), "set_compute_shader", "get_compute_shader");
+
+    ClassDB::bind_method(D_METHOD("set_smooth_normals", "enabled"), &UnderGenMesherNode::set_smooth_normals);
+    ClassDB::bind_method(D_METHOD("get_smooth_normals"), &UnderGenMesherNode::get_smooth_normals);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "smooth_normals"), "set_smooth_normals", "get_smooth_normals");
+
+    ClassDB::bind_method(D_METHOD("set_flip_normals", "enabled"), &UnderGenMesherNode::set_flip_normals);
+    ClassDB::bind_method(D_METHOD("get_flip_normals"), &UnderGenMesherNode::get_flip_normals);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_normals"), "set_flip_normals", "get_flip_normals");
 }
 
 void UnderGenMesherNode::set_chunk_size(int p_size) { chunk_size = p_size; }
@@ -58,6 +66,12 @@ void UnderGenMesherNode::set_generate_liquid_trigger(bool p_enabled) { generate_
 bool UnderGenMesherNode::get_generate_liquid_trigger() const { return generate_liquid_trigger; }
 void UnderGenMesherNode::set_compute_shader(const Ref<RDShaderFile> &p_shader) { compute_shader = p_shader; }
 Ref<RDShaderFile> UnderGenMesherNode::get_compute_shader() const { return compute_shader; }
+
+void UnderGenMesherNode::set_smooth_normals(bool p_enabled) { smooth_normals = p_enabled; }
+bool UnderGenMesherNode::get_smooth_normals() const { return smooth_normals; }
+
+void UnderGenMesherNode::set_flip_normals(bool p_enabled) { flip_normals = p_enabled; }
+bool UnderGenMesherNode::get_flip_normals() const { return flip_normals; }
 
 void UnderGenMesherNode::_execute(const Dictionary &inputs, Dictionary &outputs) {
     // This base version stores the context. The parent UnderGenWorld3D
@@ -98,6 +112,8 @@ void UnderGenMesherNode::execute_with_parent(const Dictionary &inputs, Dictionar
                 chunk->set_density_grid(grid);
                 chunk->set_generate_collision(generate_collision);
                 chunk->set_generate_occluder(generate_occluder);
+                chunk->set_smooth_normals(smooth_normals);
+                chunk->set_flip_normals(flip_normals);
                 if (liquid_material.is_valid()) {
                     // We'll call set_liquid_material, set_liquid_material_id, set_generate_liquid_trigger on the chunk
                     chunk->call("set_liquid_material", liquid_material);

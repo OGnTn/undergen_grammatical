@@ -112,6 +112,13 @@ const NODE_CATALOGUE = {
 		"inputs": [{"name": "Point Set", "type": 3}],
 		"outputs": []
 	},
+	"Mesh Spawner": {
+		"class": "UnderGenMeshSpawnerNode",
+		"color": Color(0.8, 0.45, 0.25),
+		"description": "Terminal: Spawns MultiMesh mesh decorations at PointSet positions.",
+		"inputs": [{"name": "Point Set", "type": 3}],
+		"outputs": []
+	},
 }
 
 # Port type colors (matches colour used in port rendering)

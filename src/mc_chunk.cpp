@@ -99,6 +99,14 @@ void MCChunk::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "liquid_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_liquid_material", "get_liquid_material");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "liquid_material_id", PROPERTY_HINT_RANGE, "0,255,1"), "set_liquid_material_id", "get_liquid_material_id");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_liquid_trigger"), "set_generate_liquid_trigger", "get_generate_liquid_trigger");
+
+    ClassDB::bind_method(D_METHOD("set_smooth_normals", "enable"), &MCChunk::set_smooth_normals);
+    ClassDB::bind_method(D_METHOD("get_smooth_normals"), &MCChunk::get_smooth_normals);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "smooth_normals"), "set_smooth_normals", "get_smooth_normals");
+
+    ClassDB::bind_method(D_METHOD("set_flip_normals", "enable"), &MCChunk::set_flip_normals);
+    ClassDB::bind_method(D_METHOD("get_flip_normals"), &MCChunk::get_flip_normals);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_normals"), "set_flip_normals", "get_flip_normals");
 }
 
 void MCChunk::generate_mesh_from_density_grid() {
@@ -237,9 +245,34 @@ void MCChunk::generate_mesh_from_density_grid() {
                         uint64_t edge_key = make_edge_key(world_pos_base.x, world_pos_base.y, world_pos_base.z, edge_index);
 
                         // Check Cache
-                        auto cache_it = master_vertex_cache.find(edge_key);
-                        if (cache_it != master_vertex_cache.end()) {
-                            tri_indices[j] = cache_it->second;
+                        int cached_idx = -1;
+                        uint64_t canon_edge_key = 0;
+                        if (smooth_normals) {
+                            int c_a = McTables::CORNER_INDEX_A_FROM_EDGE[edge_index];
+                            int c_b = McTables::CORNER_INDEX_B_FROM_EDGE[edge_index];
+                            Vector3i world_corner_a = world_pos_base + corner_offsets[c_a];
+                            Vector3i world_corner_b = world_pos_base + corner_offsets[c_b];
+                            
+                            int px = world_corner_a.x < world_corner_b.x ? world_corner_a.x : world_corner_b.x;
+                            int py = world_corner_a.y < world_corner_b.y ? world_corner_a.y : world_corner_b.y;
+                            int pz = world_corner_a.z < world_corner_b.z ? world_corner_a.z : world_corner_b.z;
+                            int axis = 0;
+                            if (world_corner_a.y != world_corner_b.y) axis = 1;
+                            else if (world_corner_a.z != world_corner_b.z) axis = 2;
+                            
+                            canon_edge_key = (((uint64_t)px & 0xFFFFF) << 42) |
+                                             (((uint64_t)py & 0xFFFFF) << 22) |
+                                             (((uint64_t)pz & 0xFFFFF) << 2) |
+                                             ((uint64_t)axis & 0x3);
+
+                            auto cache_it = master_vertex_cache.find(canon_edge_key);
+                            if (cache_it != master_vertex_cache.end()) {
+                                cached_idx = cache_it->second;
+                            }
+                        }
+
+                        if (cached_idx != -1) {
+                            tri_indices[j] = cached_idx;
                         } else {
                             // Interpolate new vertex
                             int c_a = McTables::CORNER_INDEX_A_FROM_EDGE[edge_index];
@@ -252,7 +285,9 @@ void MCChunk::generate_mesh_from_density_grid() {
 
                             int new_idx = master_vertices.size();
                             master_vertices.append(vert_pos);
-                            master_vertex_cache[edge_key] = new_idx;
+                            if (smooth_normals) {
+                                master_vertex_cache[canon_edge_key] = new_idx;
+                            }
                             tri_indices[j] = new_idx;
                         }
                     }
@@ -297,9 +332,10 @@ void MCChunk::generate_mesh_from_density_grid() {
         master_normals[i3] += face_normal;
     }
 
-    // Normalize
+    // Normalize and optionally flip
+    float normal_sign = flip_normals ? -1.0f : 1.0f;
     for(int i=0; i<master_normals.size(); ++i) {
-        master_normals[i] = master_normals[i].normalized();
+        master_normals[i] = master_normals[i].normalized() * normal_sign;
     }
     
     uint64_t t3 = time->get_ticks_usec();
@@ -888,45 +924,73 @@ void MCChunk::_generate_mesh_with_compute() {
     PackedVector3Array final_vertices;
     PackedInt32Array final_indices;
     PackedVector3Array final_normals;
-    std::map<Vector3, int> vertex_map;
 
-    for (int i = 0; i < raw_vertices.size(); i += 3) {
-        Vector3 v1 = raw_vertices[i];
-        Vector3 v2 = raw_vertices[i+1];
-        Vector3 v3 = raw_vertices[i+2];
-        
-        // Calculate Face Normal
-        Vector3 face_normal = (v2 - v1).cross(v3 - v1); 
+    if (smooth_normals) {
+        std::map<Vector3, int> vertex_map;
 
-        int idx[3];
-        Vector3 verts[3] = {v1, v2, v3};
+        for (int i = 0; i < raw_vertices.size(); i += 3) {
+            Vector3 v1 = raw_vertices[i];
+            Vector3 v2 = raw_vertices[i+1];
+            Vector3 v3 = raw_vertices[i+2];
+            
+            // Calculate Face Normal
+            Vector3 face_normal = (v2 - v1).cross(v3 - v1); 
 
-        for(int j=0; j<3; ++j) {
-            if(vertex_map.find(verts[j]) == vertex_map.end()) {
-                // New unique vertex found
-                int new_idx = final_vertices.size();
-                final_vertices.append(verts[j]);
+            int idx[3];
+            Vector3 verts[3] = {v1, v2, v3};
+
+            for(int j=0; j<3; ++j) {
+                if(vertex_map.find(verts[j]) == vertex_map.end()) {
+                    // New unique vertex found
+                    int new_idx = final_vertices.size();
+                    final_vertices.append(verts[j]);
+                    
+                    // Initialize normal for this NEW vertex
+                    final_normals.append(Vector3(0,0,0)); 
+                    
+                    vertex_map[verts[j]] = new_idx;
+                    idx[j] = new_idx;
+                } else {
+                    // Existing vertex found
+                    idx[j] = vertex_map[verts[j]];
+                }
                 
-                // Initialize normal for this NEW vertex
-                final_normals.append(Vector3(0,0,0)); 
+                final_indices.append(idx[j]);
                 
-                vertex_map[verts[j]] = new_idx;
-                idx[j] = new_idx;
-            } else {
-                // Existing vertex found
-                idx[j] = vertex_map[verts[j]];
+                // Accumulate normal for this existing/new vertex
+                final_normals[idx[j]] += face_normal;
             }
-            
-            final_indices.append(idx[j]);
-            
-            // Accumulate normal for this existing/new vertex
-            final_normals[idx[j]] += face_normal;
         }
-    }
 
-    // Normalize normals
-    for(int i=0; i<final_normals.size(); ++i) {
-        final_normals[i] = final_normals[i].normalized();
+        // Normalize normals
+        float normal_sign = flip_normals ? -1.0f : 1.0f;
+        for(int i=0; i<final_normals.size(); ++i) {
+            final_normals[i] = final_normals[i].normalized() * normal_sign;
+        }
+    } else {
+        final_vertices = raw_vertices;
+        final_indices.resize(raw_vertices.size());
+        for (int i = 0; i < raw_vertices.size(); ++i) {
+            final_indices[i] = i;
+        }
+        final_normals.resize(raw_vertices.size());
+        for (int i = 0; i < raw_vertices.size(); i += 3) {
+            Vector3 v1 = raw_vertices[i];
+            Vector3 v2 = raw_vertices[i+1];
+            Vector3 v3 = raw_vertices[i+2];
+            Vector3 face_normal = (v2 - v1).cross(v3 - v1);
+            if (face_normal.length_squared() < 1e-8f) {
+                face_normal = Vector3(0, 1, 0);
+            } else {
+                face_normal = face_normal.normalized();
+            }
+            if (flip_normals) {
+                face_normal = -face_normal;
+            }
+            final_normals[i] = face_normal;
+            final_normals[i+1] = face_normal;
+            final_normals[i+2] = face_normal;
+        }
     }
 
     // 7. Create Mesh
@@ -1131,6 +1195,12 @@ int MCChunk::get_liquid_material_id() const { return liquid_material_id; }
 void MCChunk::set_generate_liquid_trigger(bool p_enabled) { generate_liquid_trigger = p_enabled; }
 bool MCChunk::get_generate_liquid_trigger() const { return generate_liquid_trigger; }
 
+void MCChunk::set_smooth_normals(bool p_smooth) { smooth_normals = p_smooth; }
+bool MCChunk::get_smooth_normals() const { return smooth_normals; }
+
+void MCChunk::set_flip_normals(bool p_flip) { flip_normals = p_flip; }
+bool MCChunk::get_flip_normals() const { return flip_normals; }
+
 void MCChunk::_clear_liquid() {
     for (int i = get_child_count() - 1; i >= 0; --i) {
         Node *child = get_child(i);
@@ -1186,7 +1256,7 @@ void MCChunk::_generate_liquid_mesh() {
 
     PackedVector3Array output_vertices;
     PackedInt32Array output_triangles;
-    Dictionary vertex_cache;
+    std::unordered_map<uint64_t, int> liquid_vertex_cache;
 
     const Vector3i corner_offsets[8] = {
         Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(1, 1, 0), Vector3i(0, 1, 0),
@@ -1226,15 +1296,32 @@ void MCChunk::_generate_liquid_mesh() {
                         int edge_index = tri_table_row[i + j];
                         int corner_a_idx = McTables::CORNER_INDEX_A_FROM_EDGE[edge_index];
                         int corner_b_idx = McTables::CORNER_INDEX_B_FROM_EDGE[edge_index];
-                        Vector3i world_corner_a = world_pos_base + corner_offsets[corner_a_idx];
+                        
+                        int cached_idx = -1;
+                        uint64_t edge_key = 0;
+                        if (smooth_normals) {
+                            Vector3i world_corner_a = world_pos_base + corner_offsets[corner_a_idx];
+                            Vector3i world_corner_b = world_pos_base + corner_offsets[corner_b_idx];
+                            int px = world_corner_a.x < world_corner_b.x ? world_corner_a.x : world_corner_b.x;
+                            int py = world_corner_a.y < world_corner_b.y ? world_corner_a.y : world_corner_b.y;
+                            int pz = world_corner_a.z < world_corner_b.z ? world_corner_a.z : world_corner_b.z;
+                            int axis = 0;
+                            if (world_corner_a.y != world_corner_b.y) axis = 1;
+                            else if (world_corner_a.z != world_corner_b.z) axis = 2;
 
-                        String edge_full_key = String::num_int64(world_corner_a.x) + "_" +
-                                               String::num_int64(world_corner_a.y) + "_" +
-                                               String::num_int64(world_corner_a.z) + "_" +
-                                               String::num_int64(edge_index);
+                            edge_key = (((uint64_t)px & 0xFFFFF) << 42) |
+                                       (((uint64_t)py & 0xFFFFF) << 22) |
+                                       (((uint64_t)pz & 0xFFFFF) << 2) |
+                                       ((uint64_t)axis & 0x3);
 
-                        if (vertex_cache.has(edge_full_key)) {
-                            triangle_indices[j] = (int)vertex_cache[edge_full_key];
+                            auto cache_it = liquid_vertex_cache.find(edge_key);
+                            if (cache_it != liquid_vertex_cache.end()) {
+                                cached_idx = cache_it->second;
+                            }
+                        }
+
+                        if (cached_idx != -1) {
+                            triangle_indices[j] = cached_idx;
                         } else {
                             float val1 = corner_values[corner_a_idx];
                             float val2 = corner_values[corner_b_idx];
@@ -1250,7 +1337,9 @@ void MCChunk::_generate_liquid_mesh() {
 
                             int new_vertex_index = output_vertices.size();
                             output_vertices.append(vert_pos);
-                            vertex_cache[edge_full_key] = new_vertex_index;
+                            if (smooth_normals) {
+                                liquid_vertex_cache[edge_key] = new_vertex_index;
+                            }
                             triangle_indices[j] = new_vertex_index;
                         }
                     }
@@ -1285,11 +1374,12 @@ void MCChunk::_generate_liquid_mesh() {
         output_normals[i2] += face_normal;
         output_normals[i3] += face_normal;
     }
+    float normal_sign = flip_normals ? -1.0f : 1.0f;
     for(int i = 0; i < output_normals.size(); ++i) {
         if (output_normals[i].length_squared() < 1e-8f) {
-            output_normals[i] = Vector3(0, 1, 0);
+            output_normals[i] = Vector3(0, 1, 0) * normal_sign;
         } else {
-            output_normals[i] = output_normals[i].normalized();
+            output_normals[i] = output_normals[i].normalized() * normal_sign;
         }
     }
 

@@ -1,6 +1,7 @@
 #include "undergen_world_3d.h"
 #include "undergen_mesher_node.h"
 #include "undergen_scene_spawner_node.h"
+#include "undergen_mesh_spawner_node.h"
 #include "undergen_grammar_node.h"
 #include "undergen_bsp_placer_node.h"
 #include "density_grid.h"
@@ -549,6 +550,13 @@ void UnderGenWorld3D::spawn_scenes(Node *parent_node) {
                 Dictionary node_outputs;
                 spawner_node->execute_with_parent(inputs, node_outputs, target_parent, spawner);
             }
+
+            UnderGenMeshSpawnerNode* mesh_spawner_node = Object::cast_to<UnderGenMeshSpawnerNode>(node.ptr());
+            if (mesh_spawner_node) {
+                Dictionary inputs = pipeline->get_node_inputs(mesh_spawner_node->get_name());
+                Dictionary node_outputs;
+                mesh_spawner_node->execute_with_parent(inputs, node_outputs, target_parent);
+            }
         }
     }
 }
@@ -598,7 +606,14 @@ void UnderGenWorld3D::spawn_scenes_for_node(const String &node_name, Node *paren
                     Dictionary node_outputs;
                     spawner_node->execute_with_parent(inputs, node_outputs, target_parent, spawner);
                 } else {
-                    UtilityFunctions::printerr("UnderGenWorld3D::spawn_scenes_for_node: Node '", node_name, "' is not an UnderGenSceneSpawnerNode.");
+                    UnderGenMeshSpawnerNode* mesh_spawner_node = Object::cast_to<UnderGenMeshSpawnerNode>(node.ptr());
+                    if (mesh_spawner_node) {
+                        Dictionary inputs = pipeline->get_node_inputs(node_name);
+                        Dictionary node_outputs;
+                        mesh_spawner_node->execute_with_parent(inputs, node_outputs, target_parent);
+                    } else {
+                        UtilityFunctions::printerr("UnderGenWorld3D::spawn_scenes_for_node: Node '", node_name, "' is not a supported spawner node.");
+                    }
                 }
                 return;
             }
