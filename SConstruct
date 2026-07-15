@@ -36,8 +36,8 @@ elif env["platform"] == "ios":
         )
 else:
     library = env.SharedLibrary(
-        "bin/undergen{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
-        source=sources,
+        target="../bin/undergen{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+        source=sources
     )
 
 Default(library)
