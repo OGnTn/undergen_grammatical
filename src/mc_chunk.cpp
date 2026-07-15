@@ -95,10 +95,13 @@ void MCChunk::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_liquid_material_id"), &MCChunk::get_liquid_material_id);
     ClassDB::bind_method(D_METHOD("set_generate_liquid_trigger", "enable"), &MCChunk::set_generate_liquid_trigger);
     ClassDB::bind_method(D_METHOD("get_generate_liquid_trigger"), &MCChunk::get_generate_liquid_trigger);
+    ClassDB::bind_method(D_METHOD("set_flow_spread_limit", "limit"), &MCChunk::set_flow_spread_limit);
+    ClassDB::bind_method(D_METHOD("get_flow_spread_limit"), &MCChunk::get_flow_spread_limit);
 
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "liquid_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_liquid_material", "get_liquid_material");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "liquid_material_id", PROPERTY_HINT_RANGE, "0,255,1"), "set_liquid_material_id", "get_liquid_material_id");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_liquid_trigger"), "set_generate_liquid_trigger", "get_generate_liquid_trigger");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "flow_spread_limit"), "set_flow_spread_limit", "get_flow_spread_limit");
 
     ClassDB::bind_method(D_METHOD("set_smooth_normals", "enable"), &MCChunk::set_smooth_normals);
     ClassDB::bind_method(D_METHOD("get_smooth_normals"), &MCChunk::get_smooth_normals);
@@ -157,7 +160,11 @@ void MCChunk::generate_mesh_from_density_grid() {
             return 0;
         }
         int idx = wx + grid_dim_x * (wy + grid_dim_y * wz);
-        return (int)material_data[idx];
+        int mat = (int)material_data[idx];
+        if (mat == liquid_material_id || (mat >= 255 - flow_spread_limit && mat <= 255)) {
+            return 0; // Treat liquid cells as default terrain material for the terrain mesh pass
+        }
+        return mat;
     };
 
     auto make_edge_key = [](int wx, int wy, int wz, int edge_index) -> uint64_t {
@@ -623,7 +630,11 @@ int MCChunk::_get_voxel_material_id(const Vector3i &local_pos) {
 
     // Query the DensityGrid
     // Since get_material_id handles bounds checking internally, this is safe
-    return density_grid->get_material_id(global_pos);
+    int mat = density_grid->get_material_id(global_pos);
+    if (mat == liquid_material_id || (mat >= 255 - flow_spread_limit && mat <= 255)) {
+        return 0; // Treat liquid cells as default terrain material for the terrain mesh pass
+    }
+    return mat;
 }
 
 Dictionary MCChunk::_march_cubes_multi_mat() {
@@ -1195,6 +1206,9 @@ int MCChunk::get_liquid_material_id() const { return liquid_material_id; }
 void MCChunk::set_generate_liquid_trigger(bool p_enabled) { generate_liquid_trigger = p_enabled; }
 bool MCChunk::get_generate_liquid_trigger() const { return generate_liquid_trigger; }
 
+void MCChunk::set_flow_spread_limit(int p_limit) { flow_spread_limit = p_limit > 0 ? p_limit : 1; }
+int MCChunk::get_flow_spread_limit() const { return flow_spread_limit; }
+
 void MCChunk::set_smooth_normals(bool p_smooth) { smooth_normals = p_smooth; }
 bool MCChunk::get_smooth_normals() const { return smooth_normals; }
 
@@ -1227,7 +1241,8 @@ void MCChunk::_generate_liquid_mesh() {
                 if (world_pos.x >= 0 && world_pos.x < dim_x &&
                     world_pos.y >= 0 && world_pos.y < dim_y &&
                     world_pos.z >= 0 && world_pos.z < dim_z) {
-                    if (density_grid->get_material_id(world_pos) == liquid_material_id) {
+                    int mat = density_grid->get_material_id(world_pos);
+                    if (mat == liquid_material_id || (mat >= 255 - flow_spread_limit && mat <= 255)) {
                         has_liquid = true;
                         break;
                     }
@@ -1248,8 +1263,18 @@ void MCChunk::_generate_liquid_mesh() {
         if (density_grid->get_cell(wpos) > surf_thresh) {
             return -1.0f; // Inside solid terrain, no liquid
         }
-        if (density_grid->get_material_id(wpos) == liquid_material_id) {
-            return 1.0f; // Liquid cell
+        int mat = density_grid->get_material_id(wpos);
+        if (mat == liquid_material_id || (mat >= 255 - flow_spread_limit && mat <= 255)) {
+            // Retrieve water level directly from encoded material ID
+            int max_level = flow_spread_limit + 1;
+            int level = max_level; // Default to max
+            if (mat >= 255 - flow_spread_limit && mat <= 255) {
+                level = mat - (255 - max_level);
+            }
+
+            // Taper density linearly with level: level max gets 1.0f, level 1 gets 0.05f
+            float density = 0.05f + 0.95f * (float)(level - 1) / (float)flow_spread_limit;
+            return density;
         }
         return -1.0f; // Air cell
     };

@@ -52,6 +52,7 @@ private:
 
     // Liquid Properties
     int liquid_material_id = 2;
+    int flow_spread_limit = 7;
     Ref<Material> liquid_material;
     bool generate_liquid_trigger = true;
 
@@ -120,6 +121,8 @@ public:
     int get_liquid_material_id() const;
     void set_generate_liquid_trigger(bool p_enabled);
     bool get_generate_liquid_trigger() const;
+    void set_flow_spread_limit(int p_limit);
+    int get_flow_spread_limit() const;
 
     void set_smooth_normals(bool p_smooth);
     bool get_smooth_normals() const;

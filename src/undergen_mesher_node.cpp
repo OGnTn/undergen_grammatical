@@ -119,6 +119,9 @@ void UnderGenMesherNode::execute_with_parent(const Dictionary &inputs, Dictionar
                     chunk->call("set_liquid_material", liquid_material);
                     chunk->call("set_liquid_material_id", liquid_material_id);
                     chunk->call("set_generate_liquid_trigger", generate_liquid_trigger);
+                    
+                    int flow_spread_limit = context.get("flow_spread_limit", 7);
+                    chunk->call("set_flow_spread_limit", flow_spread_limit);
                 }
                 if (!terrain_materials.is_empty()) {
                     chunk->set_materials(terrain_materials);
