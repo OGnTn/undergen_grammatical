@@ -23,8 +23,11 @@
 #include "undergen_point_filter_node.h"
 #include "undergen_mesher_node.h"
 #include "undergen_scene_spawner_node.h"
+#include "undergen_mesh_spawner_node.h"
 #include "undergen_grammar_node.h"
 #include "undergen_material_stamper_node.h"
+#include "undergen_liquid_flood_node.h"
+#include "undergen_grid_warp_node.h"
 #include "zone_material_entry.h"
 #include "vox_spawn_entry.h"
 #include "vox_material_entry.h"
@@ -67,8 +70,11 @@ void initialize_density_grid_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<UnderGenPointFilterNode>();
     ClassDB::register_class<UnderGenMesherNode>();
     ClassDB::register_class<UnderGenSceneSpawnerNode>();
+    ClassDB::register_class<UnderGenMeshSpawnerNode>();
     ClassDB::register_class<UnderGenGrammarNode>();
     ClassDB::register_class<UnderGenMaterialStamperNode>();
+    ClassDB::register_class<UnderGenLiquidFloodNode>();
+    ClassDB::register_class<UnderGenGridWarpNode>();
     ClassDB::register_class<ZoneMaterialEntry>();
     ClassDB::register_class<VoxSpawnEntry>();
     ClassDB::register_class<VoxMaterialEntry>();

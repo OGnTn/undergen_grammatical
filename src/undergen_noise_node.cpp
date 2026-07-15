@@ -1,6 +1,9 @@
 #include "undergen_noise_node.h"
 #include "density_grid.h"
+#include "grid_parallel.h"
+#include <godot_cpp/classes/resource.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <vector>
 
 namespace godot {
 
@@ -54,25 +57,50 @@ void UnderGenNoiseNode::_execute(const Dictionary &inputs, Dictionary &outputs) 
     int gsx = grid->get_grid_size_x();
     int gsy = grid->get_grid_size_y();
     int gsz = grid->get_grid_size_z();
+    int64_t total_size = grid->get_total_cell_count();
+    if (total_size <= 0 || grid->get_density_data().size() < total_size) {
+        outputs[0] = context;
+        return;
+    }
+
+    PackedFloat32Array &density_data = grid->get_density_data_rw();
+    float *density = density_data.ptrw();
     float surf_thresh = grid->get_surface_threshold();
 
-    for (int z = 0; z < gsz; ++z) {
-        for (int y = 0; y < gsy; ++y) {
-            for (int x = 0; x < gsx; ++x) {
-                Vector3i pos(x, y, z);
-                float noise_val = noise_generator->get_noise_3d(x * inv_noise_scale, y * inv_noise_scale, z * inv_noise_scale);
-                float current_cell_value = grid->get_cell(pos, 1.0f);
-                float new_density;
-                if (current_cell_value < surf_thresh) {
-                    float carving_noise = Math::min(noise_val, 0.0f);
-                    new_density = current_cell_value + carving_noise * noise_intensity;
-                } else {
-                    new_density = current_cell_value + noise_val * noise_intensity;
+    int worker_count = grid_parallel_worker_count(gsz, total_size);
+    std::vector<Ref<FastNoiseLite>> worker_noise(worker_count);
+    for (int i = 0; i < worker_count; ++i) {
+        Ref<Resource> duplicated = noise_generator->duplicate(true);
+        worker_noise[i] = duplicated;
+        if (worker_noise[i].is_null()) {
+            worker_noise[i].instantiate();
+        }
+        worker_noise[i]->set_seed(noise_seed);
+        worker_noise[i]->set_frequency(noise_frequency);
+    }
+
+    parallel_for_z(gsz, total_size, [&](int worker_index, int z_begin, int z_end) {
+        Ref<FastNoiseLite> local_noise = worker_noise[worker_index];
+        for (int z = z_begin; z < z_end; ++z) {
+            int slice_offset = z * gsy * gsx;
+            float nz = z * inv_noise_scale;
+            for (int y = 0; y < gsy; ++y) {
+                int row_offset = slice_offset + y * gsx;
+                float ny = y * inv_noise_scale;
+                for (int x = 0; x < gsx; ++x) {
+                    int idx = row_offset + x;
+                    float noise_val = local_noise->get_noise_3d(x * inv_noise_scale, ny, nz);
+                    float current_cell_value = density[idx];
+                    if (current_cell_value < surf_thresh) {
+                        float carving_noise = Math::min(noise_val, 0.0f);
+                        density[idx] = current_cell_value + carving_noise * noise_intensity;
+                    } else {
+                        density[idx] = current_cell_value + noise_val * noise_intensity;
+                    }
                 }
-                grid->set_cell(pos, new_density);
             }
         }
-    }
+    });
 
     outputs[0] = context;
 }

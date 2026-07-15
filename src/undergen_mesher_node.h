@@ -21,7 +21,11 @@ private:
     bool generate_occluder = false;
     TypedArray<Material> terrain_materials;
     Ref<Material> liquid_material;
+    int liquid_material_id = 2;
+    bool generate_liquid_trigger = true;
     Ref<RDShaderFile> compute_shader;
+    bool smooth_normals = false;
+    bool flip_normals = false;
 
 protected:
     static void _bind_methods();
@@ -42,8 +46,16 @@ public:
     TypedArray<Material> get_terrain_materials() const;
     void set_liquid_material(const Ref<Material> &p_material);
     Ref<Material> get_liquid_material() const;
+    void set_liquid_material_id(int p_id);
+    int get_liquid_material_id() const;
+    void set_generate_liquid_trigger(bool p_enabled);
+    bool get_generate_liquid_trigger() const;
     void set_compute_shader(const Ref<RDShaderFile> &p_shader);
     Ref<RDShaderFile> get_compute_shader() const;
+    void set_smooth_normals(bool p_enabled);
+    bool get_smooth_normals() const;
+    void set_flip_normals(bool p_enabled);
+    bool get_flip_normals() const;
 
     // Called with the world node as context owner
     void execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node3D* parent_node);

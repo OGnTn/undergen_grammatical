@@ -56,6 +56,13 @@ const NODE_CATALOGUE = {
 		"inputs": [{"name": "Gen Context", "type": 2}],
 		"outputs": [{"name": "Gen Context", "type": 2}]
 	},
+	"Grid Warper": {
+		"class": "UnderGenGridWarpNode",
+		"color": Color(0.15, 0.55, 0.45),
+		"description": "Applies 3D noise displacement (domain warping) to the density grid for organic shapes.",
+		"inputs": [{"name": "Gen Context", "type": 2}],
+		"outputs": [{"name": "Gen Context", "type": 2}]
+	},
 	"Vox Stamper": {
 		"class": "UnderGenVoxStampNode",
 		"color": Color(0.7, 0.5, 0.2),
@@ -68,6 +75,13 @@ const NODE_CATALOGUE = {
 		"color": Color(0.5, 0.65, 0.3),
 		"description": "Stamps material IDs onto voxels based on zone-to-material mapping.",
 		"inputs": [{"name": "Gen Context", "type": 2}],
+		"outputs": [{"name": "Gen Context", "type": 2}]
+	},
+	"Liquid Flooder": {
+		"class": "UnderGenLiquidFloodNode",
+		"color": Color(0.1, 0.5, 0.7),
+		"description": "Floods empty cavern space with liquid material per zone or per point.",
+		"inputs": [{"name": "Gen Context", "type": 2}, {"name": "Point Set", "type": 3}],
 		"outputs": [{"name": "Gen Context", "type": 2}]
 	},
 	"Surface Sampler": {
@@ -95,6 +109,13 @@ const NODE_CATALOGUE = {
 		"class": "UnderGenSceneSpawnerNode",
 		"color": Color(0.8, 0.4, 0.1),
 		"description": "Terminal: Spawns PackedScene instances at PointSet positions.",
+		"inputs": [{"name": "Point Set", "type": 3}],
+		"outputs": []
+	},
+	"Mesh Spawner": {
+		"class": "UnderGenMeshSpawnerNode",
+		"color": Color(0.8, 0.45, 0.25),
+		"description": "Terminal: Spawns MultiMesh mesh decorations at PointSet positions.",
 		"inputs": [{"name": "Point Set", "type": 3}],
 		"outputs": []
 	},

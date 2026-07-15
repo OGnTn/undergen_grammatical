@@ -1,6 +1,8 @@
 #include "undergen_surface_sampler_node.h"
 #include "density_grid.h"
+#include "grid_parallel.h"
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <vector>
 
 namespace godot {
 
@@ -77,23 +79,91 @@ void UnderGenSurfaceSamplerNode::_execute(const Dictionary &inputs, Dictionary &
     int gsx = grid->get_grid_size_x();
     int gsy = grid->get_grid_size_y();
     int gsz = grid->get_grid_size_z();
+    int64_t total_size = grid->get_total_cell_count();
+    if (total_size <= 0 ||
+        grid->get_density_data().size() < total_size ||
+        grid->get_zone_data().size() < total_size ||
+        grid->get_material_data().size() < total_size) {
+        outputs[0] = context;
+        return;
+    }
+
     float surf = grid->get_surface_threshold();
+    const PackedFloat32Array &density_array = grid->get_density_data();
+    const PackedInt32Array &zone_array = grid->get_zone_data();
+    const PackedByteArray &material_array = grid->get_material_data();
+    const float *density_data = density_array.ptr();
+    const int32_t *zone_data = zone_array.ptr();
+    const uint8_t *material_data = material_array.ptr();
 
     // Build surface normals and generate points
     Ref<UnderGenPointSet> point_set;
     point_set.instantiate();
 
-    static const Vector3i neighbors[6] = {
-        Vector3i( 1, 0, 0), Vector3i(-1, 0, 0),
-        Vector3i( 0, 1, 0), Vector3i( 0,-1, 0),
-        Vector3i( 0, 0, 1), Vector3i( 0, 0,-1)
+    struct Neighbor {
+        int dx;
+        int dy;
+        int dz;
+    };
+    static const Neighbor neighbors[6] = {
+        { 1, 0, 0}, {-1, 0, 0},
+        { 0, 1, 0}, { 0,-1, 0},
+        { 0, 0, 1}, { 0, 0,-1}
     };
 
-    for (int z = 0; z < gsz; ++z) {
+    std::vector<String> zone_names(grid->get_zone_count());
+    for (int i = 0; i < (int)zone_names.size(); ++i) {
+        zone_names[i] = grid->get_zone_name_by_id(i);
+    }
+
+    std::vector<String> filters;
+    if (!zone_filter.is_empty()) {
+        PackedStringArray parts = zone_filter.split(",");
+        for (int i = 0; i < parts.size(); ++i) {
+            String filter = parts[i].strip_edges();
+            if (!filter.is_empty()) {
+                filters.push_back(filter);
+            }
+        }
+    }
+
+    auto zone_matches_fast = [&](const String &point_zone) -> bool {
+        if (filters.empty()) return true;
+
+        for (const String &filter : filters) {
+            switch (zone_match_mode) {
+                case ZONE_MATCH_EXACT:
+                    if (point_zone == filter) return true;
+                    break;
+                case ZONE_MATCH_PREFIX:
+                    if (point_zone.begins_with(filter)) return true;
+                    break;
+            }
+        }
+        return false;
+    };
+
+    struct SampledPoint {
+        Vector3 world_pos;
+        Vector3 normal;
+        int zone = 0;
+        String zone_name;
+        int material = 0;
+        float slope = 0.0f;
+    };
+
+    int worker_count = grid_parallel_worker_count(gsz, total_size);
+    std::vector<std::vector<SampledPoint>> worker_points(worker_count);
+
+    parallel_for_z(gsz, total_size, [&](int worker_index, int z_begin, int z_end) {
+    std::vector<SampledPoint> &local_points = worker_points[worker_index];
+    for (int z = z_begin; z < z_end; ++z) {
+        int slice_offset = z * gsy * gsx;
         for (int y = 0; y < gsy; ++y) {
+            int row_offset = slice_offset + y * gsx;
             for (int x = 0; x < gsx; ++x) {
-                Vector3i pos(x, y, z);
-                float cell_val = grid->get_cell(pos, 1.0f);
+                int idx = row_offset + x;
+                float cell_val = density_data[idx];
                 if (cell_val <= surf) continue; // Must be solid to be a surface
 
                 // Check if any neighbor is air
@@ -101,10 +171,15 @@ void UnderGenSurfaceSamplerNode::_execute(const Dictionary &inputs, Dictionary &
                 Vector3 gradient(0, 0, 0);
 
                 for (int n = 0; n < 6; ++n) {
-                    Vector3i npos = pos + neighbors[n];
-                    float nval = grid->get_cell(npos, 1.0f);
+                    int nx = x + neighbors[n].dx;
+                    int ny = y + neighbors[n].dy;
+                    int nz = z + neighbors[n].dz;
+                    float nval = 1.0f;
+                    if (nx >= 0 && nx < gsx && ny >= 0 && ny < gsy && nz >= 0 && nz < gsz) {
+                        nval = density_data[nx + gsx * (ny + gsy * nz)];
+                    }
                     if (nval <= surf) is_surface = true;
-                    gradient += Vector3(neighbors[n]) * nval;
+                    gradient += Vector3(neighbors[n].dx, neighbors[n].dy, neighbors[n].dz) * nval;
                 }
 
                 if (!is_surface) continue;
@@ -128,23 +203,66 @@ void UnderGenSurfaceSamplerNode::_execute(const Dictionary &inputs, Dictionary &
                 if (!passes_filter) continue;
 
                 // Zone filter
-                if (!_zone_matches(grid->get_zone_name_by_id(grid->get_zone_at(pos)))) continue;
+                int zone = zone_data[idx];
+                String point_zone = (zone >= 0 && zone < (int)zone_names.size()) ? zone_names[zone] : String();
+                if (!zone_matches_fast(point_zone)) continue;
 
-                // Build point attributes
-                Dictionary attrs;
-                attrs["normal"] = normal;
-                attrs["zone"] = grid->get_zone_at(pos);
-                attrs["zone_name"] = grid->get_zone_name_by_id(grid->get_zone_at(pos));
-                attrs["material"] = grid->get_material_id(pos);
-                attrs["slope"] = 1.0f - Math::abs(dot_up); // 0 = flat floor, 1 = vertical wall
+                // Calculate the exact surface intersection point using linear interpolation
+                // along the edges where the density crosses the surface threshold.
+                Vector3 surface_pos_sum(0, 0, 0);
+                int intersect_count = 0;
 
-                // Offset point slightly above surface in normal direction
-                Vector3 world_pos = Vector3(pos) * voxel_size + normal * (voxel_size * 0.5f);
-                Transform3D xform;
-                xform.origin = world_pos;
+                for (int n = 0; n < 6; ++n) {
+                    int nx = x + neighbors[n].dx;
+                    int ny = y + neighbors[n].dy;
+                    int nz = z + neighbors[n].dz;
+                    float nval = 1.0f;
+                    if (nx >= 0 && nx < gsx && ny >= 0 && ny < gsy && nz >= 0 && nz < gsz) {
+                        nval = density_data[nx + gsx * (ny + gsy * nz)];
+                    }
+                    if (nval <= surf) {
+                        float denom = cell_val - nval;
+                        float t = 0.5f;
+                        if (Math::abs(denom) > 0.0001f) {
+                            t = (cell_val - surf) / denom;
+                        }
+                        t = Math::clamp(t, 0.0f, 1.0f);
+                        Vector3 edge_pos = Vector3(x, y, z) + Vector3(neighbors[n].dx, neighbors[n].dy, neighbors[n].dz) * t;
+                        surface_pos_sum += edge_pos;
+                        intersect_count++;
+                    }
+                }
 
-                point_set->add_raw_point(xform, 1.0f, attrs);
+                SampledPoint sampled;
+                sampled.normal = normal;
+                sampled.zone = zone;
+                sampled.zone_name = point_zone;
+                sampled.material = (int)material_data[idx];
+                sampled.slope = 1.0f - Math::abs(dot_up); // 0 = flat floor, 1 = vertical wall
+
+                if (intersect_count > 0) {
+                    sampled.world_pos = (surface_pos_sum / (float)intersect_count) * voxel_size;
+                } else {
+                    sampled.world_pos = Vector3(x, y, z) * voxel_size + normal * (voxel_size * 0.5f);
+                }
+                local_points.push_back(sampled);
             }
+        }
+    }
+    });
+
+    for (const std::vector<SampledPoint> &points : worker_points) {
+        for (const SampledPoint &sampled : points) {
+            Dictionary attrs;
+            attrs["normal"] = sampled.normal;
+            attrs["zone"] = sampled.zone;
+            attrs["zone_name"] = sampled.zone_name;
+            attrs["material"] = sampled.material;
+            attrs["slope"] = sampled.slope;
+
+            Transform3D xform;
+            xform.origin = sampled.world_pos;
+            point_set->add_raw_point(xform, 1.0f, attrs);
         }
     }
 

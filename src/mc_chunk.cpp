@@ -7,6 +7,7 @@
 #include <godot_cpp/classes/node.hpp> // For notifications like NOTIFICATION_READY
 #include <string> // For std::string used in cache key
 #include <map>    // For std::map (alternative to Dictionary for vertex cache)
+#include <unordered_map>
 #include <godot_cpp/classes/static_body3d.hpp> // Added for collision body
 #include <godot_cpp/classes/array_mesh.hpp> // Added for ArrayMesh type
 #include <godot_cpp/classes/occluder_instance3d.hpp> // For occluder node
@@ -14,6 +15,7 @@
 #include <godot_cpp/classes/rd_shader_spirv.hpp>
 #include <godot_cpp/classes/rd_uniform.hpp>
 #include <godot_cpp/classes/time.hpp>
+#include <godot_cpp/classes/area3d.hpp>
 
 namespace godot {
 
@@ -36,6 +38,7 @@ MCChunk::~MCChunk() {
     // Destructor logic if needed
     _clear_collision(); // Ensure collision is cleaned up on destruction
     _clear_occluder();  // Ensure occluder is cleaned up on destruction
+    _clear_liquid();    // Ensure liquid is cleaned up on destruction
 }
 
 void MCChunk::_notification(int p_what) {
@@ -85,11 +88,31 @@ void MCChunk::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_compute_shader", "shader"), &MCChunk::set_compute_shader);
     ClassDB::bind_method(D_METHOD("get_compute_shader"), &MCChunk::get_compute_shader);
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "compute_shader", PROPERTY_HINT_RESOURCE_TYPE, "RDShaderFile"), "set_compute_shader", "get_compute_shader");
+
+    ClassDB::bind_method(D_METHOD("set_liquid_material", "material"), &MCChunk::set_liquid_material);
+    ClassDB::bind_method(D_METHOD("get_liquid_material"), &MCChunk::get_liquid_material);
+    ClassDB::bind_method(D_METHOD("set_liquid_material_id", "id"), &MCChunk::set_liquid_material_id);
+    ClassDB::bind_method(D_METHOD("get_liquid_material_id"), &MCChunk::get_liquid_material_id);
+    ClassDB::bind_method(D_METHOD("set_generate_liquid_trigger", "enable"), &MCChunk::set_generate_liquid_trigger);
+    ClassDB::bind_method(D_METHOD("get_generate_liquid_trigger"), &MCChunk::get_generate_liquid_trigger);
+
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "liquid_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_liquid_material", "get_liquid_material");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "liquid_material_id", PROPERTY_HINT_RANGE, "0,255,1"), "set_liquid_material_id", "get_liquid_material_id");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_liquid_trigger"), "set_generate_liquid_trigger", "get_generate_liquid_trigger");
+
+    ClassDB::bind_method(D_METHOD("set_smooth_normals", "enable"), &MCChunk::set_smooth_normals);
+    ClassDB::bind_method(D_METHOD("get_smooth_normals"), &MCChunk::get_smooth_normals);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "smooth_normals"), "set_smooth_normals", "get_smooth_normals");
+
+    ClassDB::bind_method(D_METHOD("set_flip_normals", "enable"), &MCChunk::set_flip_normals);
+    ClassDB::bind_method(D_METHOD("get_flip_normals"), &MCChunk::get_flip_normals);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_normals"), "set_flip_normals", "get_flip_normals");
 }
 
 void MCChunk::generate_mesh_from_density_grid() {
     _clear_collision();
     _clear_occluder();
+    _clear_liquid();
     
     if (!density_grid.is_valid()) {
         Ref<ArrayMesh> current_mesh = get_mesh();
@@ -109,9 +132,41 @@ void MCChunk::generate_mesh_from_density_grid() {
     std::vector<int> master_triangle_materials; // Stores the material ID for each triangle
     
     // Vertex Cache for the master mesh (Edge Key -> Master Index)
-    std::map<String, int> master_vertex_cache;
+    std::unordered_map<uint64_t, int> master_vertex_cache;
+    master_vertex_cache.reserve((size_t)chunk_size * chunk_size * chunk_size);
 
     float surface = density_grid->get_surface_threshold();
+    int grid_dim_x = density_grid->get_grid_size_x();
+    int grid_dim_y = density_grid->get_grid_size_y();
+    int grid_dim_z = density_grid->get_grid_size_z();
+    const PackedFloat32Array &density_array = density_grid->get_density_data();
+    const PackedByteArray &material_array = density_grid->get_material_data();
+    const float *density_data = density_array.ptr();
+    const uint8_t *material_data = material_array.ptr();
+
+    auto sample_density = [&](int wx, int wy, int wz) -> float {
+        if (wx < 0 || wx >= grid_dim_x || wy < 0 || wy >= grid_dim_y || wz < 0 || wz >= grid_dim_z) {
+            return 1.0f;
+        }
+        int idx = wx + grid_dim_x * (wy + grid_dim_y * wz);
+        return density_data[idx];
+    };
+
+    auto sample_material = [&](int wx, int wy, int wz) -> int {
+        if (wx < 0 || wx >= grid_dim_x || wy < 0 || wy >= grid_dim_y || wz < 0 || wz >= grid_dim_z) {
+            return 0;
+        }
+        int idx = wx + grid_dim_x * (wy + grid_dim_y * wz);
+        return (int)material_data[idx];
+    };
+
+    auto make_edge_key = [](int wx, int wy, int wz, int edge_index) -> uint64_t {
+        return (((uint64_t)wx & 0xFFFFF) << 44) |
+               (((uint64_t)wy & 0xFFFFF) << 24) |
+               (((uint64_t)wz & 0xFFFFF) << 4) |
+               ((uint64_t)edge_index & 0xF);
+    };
+
     const Vector3i corner_offsets[8] = {
         Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(1, 1, 0), Vector3i(0, 1, 0),
         Vector3i(0, 0, 1), Vector3i(1, 0, 1), Vector3i(1, 1, 1), Vector3i(0, 1, 1)
@@ -127,7 +182,8 @@ void MCChunk::generate_mesh_from_density_grid() {
                 // 1. Sample Corners
                 float corner_values[8];
                 for (int i = 0; i < 8; ++i) {
-                    corner_values[i] = density_grid->get_cell(world_pos_base + corner_offsets[i], 1.0f);
+                    Vector3i corner_pos = world_pos_base + corner_offsets[i];
+                    corner_values[i] = sample_density(corner_pos.x, corner_pos.y, corner_pos.z);
                 }
 
                 // 2. Get Material ID
@@ -137,7 +193,8 @@ void MCChunk::generate_mesh_from_density_grid() {
                 // 1. Try to find a solid corner with a custom (non-zero) material (e.g. from Vox Stamping)
                 for (int i = 0; i < 8; ++i) {
                     if (corner_values[i] > surface) {
-                        int corner_mat = _get_voxel_material_id(local_pos + corner_offsets[i]);
+                        Vector3i corner_pos = world_pos_base + corner_offsets[i];
+                        int corner_mat = sample_material(corner_pos.x, corner_pos.y, corner_pos.z);
                         if (corner_mat > 0) {
                             if (corner_values[i] > max_solid_density) {
                                 max_solid_density = corner_values[i];
@@ -157,7 +214,8 @@ void MCChunk::generate_mesh_from_density_grid() {
                             min_density_idx = i;
                         }
                     }
-                    mat_idx = _get_voxel_material_id(local_pos + corner_offsets[min_density_idx]);
+                    Vector3i corner_pos = world_pos_base + corner_offsets[min_density_idx];
+                    mat_idx = sample_material(corner_pos.x, corner_pos.y, corner_pos.z);
                 }
 
                 // 3. Determine Cube Index
@@ -184,15 +242,37 @@ void MCChunk::generate_mesh_from_density_grid() {
                         int edge_index = tri_table_row[i + j];
                         
                         // Create unique key for this specific edge in world space
-                        String edge_key = String::num_int64(world_pos_base.x) + "_" +
-                                          String::num_int64(world_pos_base.y) + "_" +
-                                          String::num_int64(world_pos_base.z) + "_" +
-                                          String::num_int64(edge_index);
+                        uint64_t edge_key = make_edge_key(world_pos_base.x, world_pos_base.y, world_pos_base.z, edge_index);
 
                         // Check Cache
-                        auto cache_it = master_vertex_cache.find(edge_key);
-                        if (cache_it != master_vertex_cache.end()) {
-                            tri_indices[j] = cache_it->second;
+                        int cached_idx = -1;
+                        uint64_t canon_edge_key = 0;
+                        if (smooth_normals) {
+                            int c_a = McTables::CORNER_INDEX_A_FROM_EDGE[edge_index];
+                            int c_b = McTables::CORNER_INDEX_B_FROM_EDGE[edge_index];
+                            Vector3i world_corner_a = world_pos_base + corner_offsets[c_a];
+                            Vector3i world_corner_b = world_pos_base + corner_offsets[c_b];
+                            
+                            int px = world_corner_a.x < world_corner_b.x ? world_corner_a.x : world_corner_b.x;
+                            int py = world_corner_a.y < world_corner_b.y ? world_corner_a.y : world_corner_b.y;
+                            int pz = world_corner_a.z < world_corner_b.z ? world_corner_a.z : world_corner_b.z;
+                            int axis = 0;
+                            if (world_corner_a.y != world_corner_b.y) axis = 1;
+                            else if (world_corner_a.z != world_corner_b.z) axis = 2;
+                            
+                            canon_edge_key = (((uint64_t)px & 0xFFFFF) << 42) |
+                                             (((uint64_t)py & 0xFFFFF) << 22) |
+                                             (((uint64_t)pz & 0xFFFFF) << 2) |
+                                             ((uint64_t)axis & 0x3);
+
+                            auto cache_it = master_vertex_cache.find(canon_edge_key);
+                            if (cache_it != master_vertex_cache.end()) {
+                                cached_idx = cache_it->second;
+                            }
+                        }
+
+                        if (cached_idx != -1) {
+                            tri_indices[j] = cached_idx;
                         } else {
                             // Interpolate new vertex
                             int c_a = McTables::CORNER_INDEX_A_FROM_EDGE[edge_index];
@@ -205,7 +285,9 @@ void MCChunk::generate_mesh_from_density_grid() {
 
                             int new_idx = master_vertices.size();
                             master_vertices.append(vert_pos);
-                            master_vertex_cache[edge_key] = new_idx;
+                            if (smooth_normals) {
+                                master_vertex_cache[canon_edge_key] = new_idx;
+                            }
                             tri_indices[j] = new_idx;
                         }
                     }
@@ -250,9 +332,10 @@ void MCChunk::generate_mesh_from_density_grid() {
         master_normals[i3] += face_normal;
     }
 
-    // Normalize
+    // Normalize and optionally flip
+    float normal_sign = flip_normals ? -1.0f : 1.0f;
     for(int i=0; i<master_normals.size(); ++i) {
-        master_normals[i] = master_normals[i].normalized();
+        master_normals[i] = master_normals[i].normalized() * normal_sign;
     }
     
     uint64_t t3 = time->get_ticks_usec();
@@ -351,6 +434,11 @@ void MCChunk::generate_mesh_from_density_grid() {
     // --- STEP 5: Generate Physics/Occlusion ---
     if (generate_collision) _generate_collision(total_collision_vertices, total_collision_indices);
     if (generate_occluder) _generate_occluder(total_collision_vertices, total_collision_indices);
+    
+    // --- STEP 6: Generate Liquid Mesh ---
+    if (liquid_material.is_valid()) {
+        _generate_liquid_mesh();
+    }
     
     uint64_t t6 = time->get_ticks_usec();
     uint64_t dt_collision = t6 - t5;
@@ -836,45 +924,73 @@ void MCChunk::_generate_mesh_with_compute() {
     PackedVector3Array final_vertices;
     PackedInt32Array final_indices;
     PackedVector3Array final_normals;
-    std::map<Vector3, int> vertex_map;
 
-    for (int i = 0; i < raw_vertices.size(); i += 3) {
-        Vector3 v1 = raw_vertices[i];
-        Vector3 v2 = raw_vertices[i+1];
-        Vector3 v3 = raw_vertices[i+2];
-        
-        // Calculate Face Normal
-        Vector3 face_normal = (v2 - v1).cross(v3 - v1); 
+    if (smooth_normals) {
+        std::map<Vector3, int> vertex_map;
 
-        int idx[3];
-        Vector3 verts[3] = {v1, v2, v3};
+        for (int i = 0; i < raw_vertices.size(); i += 3) {
+            Vector3 v1 = raw_vertices[i];
+            Vector3 v2 = raw_vertices[i+1];
+            Vector3 v3 = raw_vertices[i+2];
+            
+            // Calculate Face Normal
+            Vector3 face_normal = (v2 - v1).cross(v3 - v1); 
 
-        for(int j=0; j<3; ++j) {
-            if(vertex_map.find(verts[j]) == vertex_map.end()) {
-                // New unique vertex found
-                int new_idx = final_vertices.size();
-                final_vertices.append(verts[j]);
+            int idx[3];
+            Vector3 verts[3] = {v1, v2, v3};
+
+            for(int j=0; j<3; ++j) {
+                if(vertex_map.find(verts[j]) == vertex_map.end()) {
+                    // New unique vertex found
+                    int new_idx = final_vertices.size();
+                    final_vertices.append(verts[j]);
+                    
+                    // Initialize normal for this NEW vertex
+                    final_normals.append(Vector3(0,0,0)); 
+                    
+                    vertex_map[verts[j]] = new_idx;
+                    idx[j] = new_idx;
+                } else {
+                    // Existing vertex found
+                    idx[j] = vertex_map[verts[j]];
+                }
                 
-                // Initialize normal for this NEW vertex
-                final_normals.append(Vector3(0,0,0)); 
+                final_indices.append(idx[j]);
                 
-                vertex_map[verts[j]] = new_idx;
-                idx[j] = new_idx;
-            } else {
-                // Existing vertex found
-                idx[j] = vertex_map[verts[j]];
+                // Accumulate normal for this existing/new vertex
+                final_normals[idx[j]] += face_normal;
             }
-            
-            final_indices.append(idx[j]);
-            
-            // Accumulate normal for this existing/new vertex
-            final_normals[idx[j]] += face_normal;
         }
-    }
 
-    // Normalize normals
-    for(int i=0; i<final_normals.size(); ++i) {
-        final_normals[i] = final_normals[i].normalized();
+        // Normalize normals
+        float normal_sign = flip_normals ? -1.0f : 1.0f;
+        for(int i=0; i<final_normals.size(); ++i) {
+            final_normals[i] = final_normals[i].normalized() * normal_sign;
+        }
+    } else {
+        final_vertices = raw_vertices;
+        final_indices.resize(raw_vertices.size());
+        for (int i = 0; i < raw_vertices.size(); ++i) {
+            final_indices[i] = i;
+        }
+        final_normals.resize(raw_vertices.size());
+        for (int i = 0; i < raw_vertices.size(); i += 3) {
+            Vector3 v1 = raw_vertices[i];
+            Vector3 v2 = raw_vertices[i+1];
+            Vector3 v3 = raw_vertices[i+2];
+            Vector3 face_normal = (v2 - v1).cross(v3 - v1);
+            if (face_normal.length_squared() < 1e-8f) {
+                face_normal = Vector3(0, 1, 0);
+            } else {
+                face_normal = face_normal.normalized();
+            }
+            if (flip_normals) {
+                face_normal = -face_normal;
+            }
+            final_normals[i] = face_normal;
+            final_normals[i+1] = face_normal;
+            final_normals[i+2] = face_normal;
+        }
     }
 
     // 7. Create Mesh
@@ -1069,5 +1185,258 @@ TypedArray<Material> MCChunk::get_materials() const { return materials; }
 
 void MCChunk::set_compute_shader(const Ref<RDShaderFile> &p_shader) { compute_shader = p_shader; }
 Ref<RDShaderFile> MCChunk::get_compute_shader() const { return compute_shader; }
+
+void MCChunk::set_liquid_material(const Ref<Material> &p_material) { liquid_material = p_material; }
+Ref<Material> MCChunk::get_liquid_material() const { return liquid_material; }
+
+void MCChunk::set_liquid_material_id(int p_id) { liquid_material_id = Math::clamp(p_id, 0, 255); }
+int MCChunk::get_liquid_material_id() const { return liquid_material_id; }
+
+void MCChunk::set_generate_liquid_trigger(bool p_enabled) { generate_liquid_trigger = p_enabled; }
+bool MCChunk::get_generate_liquid_trigger() const { return generate_liquid_trigger; }
+
+void MCChunk::set_smooth_normals(bool p_smooth) { smooth_normals = p_smooth; }
+bool MCChunk::get_smooth_normals() const { return smooth_normals; }
+
+void MCChunk::set_flip_normals(bool p_flip) { flip_normals = p_flip; }
+bool MCChunk::get_flip_normals() const { return flip_normals; }
+
+void MCChunk::_clear_liquid() {
+    for (int i = get_child_count() - 1; i >= 0; --i) {
+        Node *child = get_child(i);
+        if (child && (child->get_name() == String("LiquidMesh") || child->get_name() == String("LiquidTrigger"))) {
+            child->queue_free();
+        }
+    }
+}
+
+void MCChunk::_generate_liquid_mesh() {
+    if (!density_grid.is_valid()) return;
+
+    int dim_x = density_grid->get_grid_size_x();
+    int dim_y = density_grid->get_grid_size_y();
+    int dim_z = density_grid->get_grid_size_z();
+    float surf_thresh = density_grid->get_surface_threshold();
+
+    // 1. Scan if there's any liquid in this chunk
+    bool has_liquid = false;
+    for (int z = 0; z < chunk_size; ++z) {
+        for (int y = 0; y < chunk_size; ++y) {
+            for (int x = 0; x < chunk_size; ++x) {
+                Vector3i world_pos = chunk_grid_offset + Vector3i(x, y, z);
+                if (world_pos.x >= 0 && world_pos.x < dim_x &&
+                    world_pos.y >= 0 && world_pos.y < dim_y &&
+                    world_pos.z >= 0 && world_pos.z < dim_z) {
+                    if (density_grid->get_material_id(world_pos) == liquid_material_id) {
+                        has_liquid = true;
+                        break;
+                    }
+                }
+            }
+            if (has_liquid) break;
+        }
+        if (has_liquid) break;
+    }
+
+    if (!has_liquid) return;
+
+    // Helper lambda to sample virtual liquid density
+    auto get_liquid_density = [&](const Vector3i &wpos) -> float {
+        if (wpos.x < 0 || wpos.x >= dim_x || wpos.y < 0 || wpos.y >= dim_y || wpos.z < 0 || wpos.z >= dim_z) {
+            return -1.0f;
+        }
+        if (density_grid->get_cell(wpos) > surf_thresh) {
+            return -1.0f; // Inside solid terrain, no liquid
+        }
+        if (density_grid->get_material_id(wpos) == liquid_material_id) {
+            return 1.0f; // Liquid cell
+        }
+        return -1.0f; // Air cell
+    };
+
+    PackedVector3Array output_vertices;
+    PackedInt32Array output_triangles;
+    std::unordered_map<uint64_t, int> liquid_vertex_cache;
+
+    const Vector3i corner_offsets[8] = {
+        Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(1, 1, 0), Vector3i(0, 1, 0),
+        Vector3i(0, 0, 1), Vector3i(1, 0, 1), Vector3i(1, 1, 1), Vector3i(0, 1, 1)
+    };
+
+    // 2. Perform Marching Cubes on virtual liquid density
+    for (int z = 0; z < chunk_size; ++z) {
+        for (int y = 0; y < chunk_size; ++y) {
+            for (int x = 0; x < chunk_size; ++x) {
+                Vector3i local_pos(x, y, z);
+                Vector3i world_pos_base = chunk_grid_offset + local_pos;
+
+                float corner_values[8];
+                for (int i = 0; i < 8; ++i) {
+                    corner_values[i] = get_liquid_density(world_pos_base + corner_offsets[i]);
+                }
+
+                int cube_index = 0;
+                for (int i = 0; i < 8; ++i) {
+                    if (corner_values[i] > 0.0f) {
+                        cube_index |= (1 << i);
+                    }
+                }
+
+                const int* tri_table_row = McTables::TRI_TABLE[cube_index];
+                if (tri_table_row[0] == -1) continue;
+
+                Vector3 corner_locations_local[8];
+                for (int i = 0; i < 8; ++i) {
+                    corner_locations_local[i] = Vector3(local_pos + corner_offsets[i]) * voxel_size;
+                }
+
+                int triangle_indices[3];
+                for (int i = 0; tri_table_row[i] != -1; i += 3) {
+                    for (int j = 0; j < 3; ++j) {
+                        int edge_index = tri_table_row[i + j];
+                        int corner_a_idx = McTables::CORNER_INDEX_A_FROM_EDGE[edge_index];
+                        int corner_b_idx = McTables::CORNER_INDEX_B_FROM_EDGE[edge_index];
+                        
+                        int cached_idx = -1;
+                        uint64_t edge_key = 0;
+                        if (smooth_normals) {
+                            Vector3i world_corner_a = world_pos_base + corner_offsets[corner_a_idx];
+                            Vector3i world_corner_b = world_pos_base + corner_offsets[corner_b_idx];
+                            int px = world_corner_a.x < world_corner_b.x ? world_corner_a.x : world_corner_b.x;
+                            int py = world_corner_a.y < world_corner_b.y ? world_corner_a.y : world_corner_b.y;
+                            int pz = world_corner_a.z < world_corner_b.z ? world_corner_a.z : world_corner_b.z;
+                            int axis = 0;
+                            if (world_corner_a.y != world_corner_b.y) axis = 1;
+                            else if (world_corner_a.z != world_corner_b.z) axis = 2;
+
+                            edge_key = (((uint64_t)px & 0xFFFFF) << 42) |
+                                       (((uint64_t)py & 0xFFFFF) << 22) |
+                                       (((uint64_t)pz & 0xFFFFF) << 2) |
+                                       ((uint64_t)axis & 0x3);
+
+                            auto cache_it = liquid_vertex_cache.find(edge_key);
+                            if (cache_it != liquid_vertex_cache.end()) {
+                                cached_idx = cache_it->second;
+                            }
+                        }
+
+                        if (cached_idx != -1) {
+                            triangle_indices[j] = cached_idx;
+                        } else {
+                            float val1 = corner_values[corner_a_idx];
+                            float val2 = corner_values[corner_b_idx];
+                            Vector3 p1 = corner_locations_local[corner_a_idx];
+                            Vector3 p2 = corner_locations_local[corner_b_idx];
+                            Vector3 vert_pos;
+                            if (Math::abs(val1 - val2) < CMP_EPSILON) {
+                                vert_pos = (p1 + p2) * 0.5f;
+                            } else {
+                                float t = (0.0f - val1) / (val2 - val1);
+                                vert_pos = p1 + t * (p2 - p1);
+                            }
+
+                            int new_vertex_index = output_vertices.size();
+                            output_vertices.append(vert_pos);
+                            if (smooth_normals) {
+                                liquid_vertex_cache[edge_key] = new_vertex_index;
+                            }
+                            triangle_indices[j] = new_vertex_index;
+                        }
+                    }
+
+                    output_triangles.append(triangle_indices[0]);
+                    output_triangles.append(triangle_indices[1]);
+                    output_triangles.append(triangle_indices[2]);
+                }
+            }
+        }
+    }
+
+    if (output_vertices.is_empty()) return;
+
+    // 3. Compute smooth normals
+    PackedVector3Array output_normals;
+    output_normals.resize(output_vertices.size());
+    for(int i = 0; i < output_normals.size(); ++i) {
+        output_normals[i] = Vector3(0, 0, 0);
+    }
+    for (int i = 0; i < output_triangles.size(); i += 3) {
+        int i1 = output_triangles[i];
+        int i2 = output_triangles[i+1];
+        int i3 = output_triangles[i+2];
+
+        Vector3 v1 = output_vertices[i1];
+        Vector3 v2 = output_vertices[i2];
+        Vector3 v3 = output_vertices[i3];
+
+        Vector3 face_normal = (v2 - v1).cross(v3 - v1);
+        output_normals[i1] += face_normal;
+        output_normals[i2] += face_normal;
+        output_normals[i3] += face_normal;
+    }
+    float normal_sign = flip_normals ? -1.0f : 1.0f;
+    for(int i = 0; i < output_normals.size(); ++i) {
+        if (output_normals[i].length_squared() < 1e-8f) {
+            output_normals[i] = Vector3(0, 1, 0) * normal_sign;
+        } else {
+            output_normals[i] = output_normals[i].normalized() * normal_sign;
+        }
+    }
+
+    // 4. Generate horizontal planar UVs
+    PackedVector2Array output_uvs;
+    output_uvs.resize(output_vertices.size());
+    float uv_scale = voxel_size > 0 ? voxel_size : 1.0f;
+    for(int i = 0; i < output_vertices.size(); ++i) {
+        output_uvs[i] = Vector2(output_vertices[i].x / uv_scale, output_vertices[i].z / uv_scale);
+    }
+
+    // 5. Build ArrayMesh
+    Ref<ArrayMesh> liquid_arr_mesh;
+    liquid_arr_mesh.instantiate();
+
+    Array arrays;
+    arrays.resize(Mesh::ARRAY_MAX);
+    arrays[Mesh::ARRAY_VERTEX] = output_vertices;
+    arrays[Mesh::ARRAY_NORMAL] = output_normals;
+    arrays[Mesh::ARRAY_INDEX] = output_triangles;
+    arrays[Mesh::ARRAY_TEX_UV] = output_uvs;
+
+    liquid_arr_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
+
+    // 6. Spawn LiquidMesh child node
+    MeshInstance3D* liquid_mesh_node = memnew(MeshInstance3D);
+    liquid_mesh_node->set_name("LiquidMesh");
+    add_child(liquid_mesh_node);
+    liquid_mesh_node->set_owner(get_owner());
+    liquid_mesh_node->set_mesh(liquid_arr_mesh);
+    if (liquid_material.is_valid()) {
+        liquid_mesh_node->set_material_override(liquid_material);
+    }
+
+    // 7. Spawn optional swimming trigger Area3D
+    if (generate_liquid_trigger) {
+        Area3D* area = memnew(Area3D);
+        area->set_name("LiquidTrigger");
+        add_child(area);
+        area->set_owner(get_owner());
+
+        CollisionShape3D* shape_node = memnew(CollisionShape3D);
+        shape_node->set_name("CollisionShape3D");
+        area->add_child(shape_node);
+        shape_node->set_owner(get_owner());
+
+        Ref<ConcavePolygonShape3D> liquid_trigger_shape;
+        liquid_trigger_shape.instantiate();
+
+        PackedVector3Array faces;
+        faces.resize(output_triangles.size());
+        for (int i = 0; i < output_triangles.size(); ++i) {
+            faces[i] = output_vertices[output_triangles[i]];
+        }
+        liquid_trigger_shape->set_faces(faces);
+        shape_node->set_shape(liquid_trigger_shape);
+    }
+}
 
 } // namespace godot

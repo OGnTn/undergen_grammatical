@@ -19,6 +19,7 @@ private:
     int margin_y = 1;
     int margin_z = 1;
     float surface_threshold = 0.0f;
+    float spread_ratio = 0.5f;
     Ref<RandomNumberGenerator> rng;
 
 protected:
@@ -43,6 +44,9 @@ public:
     int get_margin_y() const;
     void set_margin_z(int p_z);
     int get_margin_z() const;
+
+    void set_spread_ratio(float p_ratio);
+    float get_spread_ratio() const;
 
     virtual void _execute(const Dictionary &inputs, Dictionary &outputs) override;
 };

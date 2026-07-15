@@ -21,6 +21,9 @@ var current_resource: LevelGrammarResource:
 var _path_label:    Label          # shows current resource path
 var _tabs:          TabContainer   # shown only when resource is loaded
 var _splash:        Control        # shown when no resource is loaded
+var _settings_bar:  HBoxContainer
+var _axiom_edit:    LineEdit
+var _settings_sep:  HSeparator
 
 # Palette tab
 var _pal_list:      ItemList
@@ -44,6 +47,7 @@ var _cond_var_opt:  OptionButton
 var _cond_op_opt:   OptionButton
 var _cond_val_sp:   SpinBox
 var _zone_opt:      OptionButton
+var _zone_edit:     LineEdit
 var _actions_vbox:  VBoxContainer
 
 var _graph:         GraphEdit
@@ -123,6 +127,26 @@ func _ready():
 
 	vbox.add_child(HSeparator.new())
 
+	# ── Settings bar (Axiom edit field) ──────────────────────────────────────
+	_settings_bar = HBoxContainer.new()
+	_settings_bar.add_theme_constant_override("separation", 6)
+	_settings_bar.hide()
+	vbox.add_child(_settings_bar)
+
+	var axiom_lbl = Label.new()
+	axiom_lbl.text = "  Axiom:"
+	_settings_bar.add_child(axiom_lbl)
+
+	_axiom_edit = LineEdit.new()
+	_axiom_edit.placeholder_text = "e.g. Start"
+	_axiom_edit.custom_minimum_size = Vector2(200, 0)
+	_axiom_edit.text_changed.connect(_on_axiom_changed)
+	_settings_bar.add_child(_axiom_edit)
+
+	_settings_sep = HSeparator.new()
+	_settings_sep.hide()
+	vbox.add_child(_settings_sep)
+
 	# ── Splash (no resource loaded) ──────────────────────────────────────────
 	_splash = _build_splash()
 	vbox.add_child(_splash)
@@ -197,13 +221,25 @@ func _on_resource_changed():
 			if current_resource.resource_path != "" else "(unsaved)"
 		_path_label.modulate = Color(0.9, 0.9, 0.9)
 		_splash.hide()
+		if _settings_bar: _settings_bar.show()
+		if _settings_sep: _settings_sep.show()
 		_tabs.show()
+		if _axiom_edit: _axiom_edit.text = current_resource.axiom
 		_refresh_all()
 	else:
 		_path_label.text = "(no grammar loaded)"
 		_path_label.modulate = Color(0.6, 0.6, 0.6)
 		_splash.show()
+		if _settings_bar: _settings_bar.hide()
+		if _settings_sep: _settings_sep.hide()
 		_tabs.hide()
+
+
+func _on_axiom_changed(new_text: String):
+	if current_resource:
+		current_resource.axiom = new_text.strip_edges()
+		_refresh_lhs_options()
+		_rebuild_ctx_menu()
 
 
 func _on_new_grammar():
@@ -335,6 +371,7 @@ func _do_import_json(path: String):
 		room.max_size = rt.max_size
 		room.vox_path = rt.vox_path
 		room.exclude_from_smoothing = rt.exclude_from_smoothing
+		room.exclude_from_warping = rt.exclude_from_warping
 		res.room_types.append(room)
 
 	for rule in spec.rules:
@@ -410,6 +447,8 @@ func _grammar_to_dictionary() -> Dictionary:
 			r["vox_path"] = rt.vox_path
 		if rt.exclude_from_smoothing:
 			r["exclude_from_smoothing"] = rt.exclude_from_smoothing
+		if rt.exclude_from_warping:
+			r["exclude_from_warping"] = rt.exclude_from_warping
 		rt_arr.append(r)
 	d["room_types"] = rt_arr
 
@@ -591,6 +630,12 @@ func _load_pal_inspector(rt: RoomType):
 	smooth_cb.toggled.connect(func(pressed): rt.exclude_from_smoothing = pressed)
 	_pal_insp_box.add_child(smooth_cb)
 
+	var warp_cb = CheckBox.new()
+	warp_cb.text = "Exclude from warping"
+	warp_cb.button_pressed = rt.exclude_from_warping
+	warp_cb.toggled.connect(func(pressed): rt.exclude_from_warping = pressed)
+	_pal_insp_box.add_child(warp_cb)
+
 
 func _open_vox_picker(target_edit: LineEdit, rt: RoomType):
 	if not _pal_file_dlg:
@@ -691,7 +736,14 @@ func _build_rule_toolbar() -> Control:
 	r1.add_child(_mk("  New edge zone:"))
 	_zone_opt = OptionButton.new()
 	for z in ZONE_LABELS: _zone_opt.add_item(z)
+	_zone_opt.item_selected.connect(_on_zone_preset_selected)
 	r1.add_child(_zone_opt)
+	_zone_edit = LineEdit.new()
+	_zone_edit.text = ZONE_LABELS[0]
+	_zone_edit.placeholder_text = "zone_name"
+	_zone_edit.tooltip_text = "Zone name saved on newly created edges. Custom names are allowed."
+	_zone_edit.custom_minimum_size = Vector2(140, 0)
+	r1.add_child(_zone_edit)
 
 	# Row 2: Condition
 	var r2 = HBoxContainer.new(); vbox.add_child(r2)
@@ -738,7 +790,9 @@ func _on_add_rule():
 	_save_current_rule()
 	var rule = GraphRule.new()
 	rule.rule_name = "Rule%d" % current_resource.rules.size()
-	if current_resource.room_types.size() > 0:
+	if current_resource.axiom != "":
+		rule.lhs_symbol = current_resource.axiom
+	elif current_resource.room_types.size() > 0:
 		rule.lhs_symbol = current_resource.room_types[0].symbol
 	current_resource.rules.append(rule)
 	_refresh_rules_list()
@@ -973,7 +1027,22 @@ func _clear_graph():
 
 func _on_connection_request(from_node, from_port, to_node, to_port):
 	_graph.connect_node(from_node, from_port, to_node, to_port)
-	_edge_meta[str(from_node)+"_"+str(to_node)] = _zone_opt.get_item_text(_zone_opt.selected)
+	_edge_meta[str(from_node)+"_"+str(to_node)] = _get_new_edge_zone()
+
+
+func _on_zone_preset_selected(index: int):
+	if _zone_edit and index >= 0:
+		_zone_edit.text = _zone_opt.get_item_text(index)
+
+
+func _get_new_edge_zone() -> String:
+	if _zone_edit:
+		var zone := _zone_edit.text.strip_edges()
+		if not zone.is_empty():
+			return zone
+	if _zone_opt and _zone_opt.selected >= 0:
+		return _zone_opt.get_item_text(_zone_opt.selected)
+	return "corridor"
 
 
 func _on_disconnection_request(from_node, from_port, to_node, to_port):
@@ -1010,8 +1079,14 @@ func _on_ctx_item_pressed(id: int):
 func _rebuild_ctx_menu():
 	_ctx_menu.clear()
 	if not current_resource: return
-	for i in current_resource.room_types.size():
-		_ctx_menu.add_item(current_resource.room_types[i].symbol, i)
+	var syms: Array[String] = []
+	if current_resource.axiom != "":
+		syms.append(current_resource.axiom)
+	for rt: RoomType in current_resource.room_types:
+		if rt.symbol != "" and not syms.has(rt.symbol):
+			syms.append(rt.symbol)
+	for i in syms.size():
+		_ctx_menu.add_item(syms[i], i)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  STATE VARIABLES
@@ -1066,13 +1141,33 @@ func _refresh_lhs_options():
 	var cur = _lhs_opt.get_item_text(_lhs_opt.selected) if _lhs_opt.selected >= 0 else ""
 	_populate_palette_option(_lhs_opt)
 	for i in _lhs_opt.item_count:
-		if _lhs_opt.get_item_text(i) == cur: _lhs_opt.select(i); return
+		if _lhs_opt.get_item_text(i) == cur:
+			_lhs_opt.select(i)
+			break
+	if _graph:
+		for child in _graph.get_children():
+			if child is GraphNode:
+				var sym_opt = child.get_node_or_null("Box/SymOpt")
+				if sym_opt is OptionButton:
+					var old_val = sym_opt.get_item_text(sym_opt.selected) if sym_opt.selected >= 0 else ""
+					_populate_palette_option(sym_opt)
+					for i in sym_opt.item_count:
+						if sym_opt.get_item_text(i) == old_val:
+							sym_opt.select(i)
+							break
 
 
 func _populate_palette_option(opt: OptionButton):
 	opt.clear()
 	if not current_resource: return
-	for rt: RoomType in current_resource.room_types: opt.add_item(rt.symbol)
+	var syms: Array[String] = []
+	if current_resource.axiom != "":
+		syms.append(current_resource.axiom)
+	for rt: RoomType in current_resource.room_types:
+		if rt.symbol != "" and not syms.has(rt.symbol):
+			syms.append(rt.symbol)
+	for sym in syms:
+		opt.add_item(sym)
 
 
 func _populate_state_var_option(opt: OptionButton):

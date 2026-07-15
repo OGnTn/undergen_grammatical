@@ -3,6 +3,7 @@
 
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/ref.hpp>
+#include <godot_cpp/variant/node_path.hpp>
 #include "undergen_pipeline.h"
 #include <thread>
 #include <mutex>
@@ -23,6 +24,8 @@ private:
     bool generate_on_ready = false;
     bool spawn_on_generation_complete = true;
     Array vox_spawns;
+    NodePath parent_node_path;
+    NodePath multiplayer_spawner_path;
 
     // Inspector "button" — set to true triggers generation
     bool _trigger_generate = false;
@@ -68,6 +71,12 @@ public:
 
     void set_spawn_on_generation_complete(bool p_enabled);
     bool get_spawn_on_generation_complete() const;
+
+    void set_parent_node(const NodePath &p_path);
+    NodePath get_parent_node() const;
+
+    void set_multiplayer_spawner(const NodePath &p_path);
+    NodePath get_multiplayer_spawner() const;
 
     void spawn_scenes(Node *parent_node = nullptr);
     void spawn_scenes_for_node(const String &node_name, Node *parent_node = nullptr);

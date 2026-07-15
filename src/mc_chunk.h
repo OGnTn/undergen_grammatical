@@ -40,7 +40,8 @@ private:
     float voxel_size = 1.0;
     Vector3i chunk_grid_offset = Vector3i(0, 0, 0);
     TypedArray<Material> materials;
-    bool smooth_normals = true;
+    bool smooth_normals = false;
+    bool flip_normals = false;
     bool generate_collision = true;
     bool generate_occluder = true; // Added property for occluder generation
     Ref<RDShaderFile> compute_shader;
@@ -48,6 +49,14 @@ private:
     Ref<DensityGrid> density_grid;
     Ref<ConcavePolygonShape3D> collision_shape; // Member to hold the collision shape resource
     Ref<ArrayOccluder3D> occluder_shape;      // Member to hold the occluder shape resource
+
+    // Liquid Properties
+    int liquid_material_id = 2;
+    Ref<Material> liquid_material;
+    bool generate_liquid_trigger = true;
+
+    void _generate_liquid_mesh();
+    void _clear_liquid();
 
     Dictionary _march_cubes_multi_mat();
     Dictionary _march_cubes();
@@ -103,6 +112,20 @@ public:
     // Compute Shader
     void set_compute_shader(const Ref<RDShaderFile> &p_shader);
     Ref<RDShaderFile> get_compute_shader() const;
+
+    // Liquid
+    void set_liquid_material(const Ref<Material> &p_material);
+    Ref<Material> get_liquid_material() const;
+    void set_liquid_material_id(int p_id);
+    int get_liquid_material_id() const;
+    void set_generate_liquid_trigger(bool p_enabled);
+    bool get_generate_liquid_trigger() const;
+
+    void set_smooth_normals(bool p_smooth);
+    bool get_smooth_normals() const;
+
+    void set_flip_normals(bool p_flip);
+    bool get_flip_normals() const;
 };
 
 } // namespace godot

@@ -1,6 +1,7 @@
 #include "undergen_world_3d.h"
 #include "undergen_mesher_node.h"
 #include "undergen_scene_spawner_node.h"
+#include "undergen_mesh_spawner_node.h"
 #include "undergen_grammar_node.h"
 #include "undergen_bsp_placer_node.h"
 #include "density_grid.h"
@@ -8,6 +9,7 @@
 #include "undergen_vox_stamp_node.h"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/classes/label3d.hpp>
+#include <godot_cpp/classes/multiplayer_spawner.hpp>
 
 namespace godot {
 
@@ -46,6 +48,10 @@ void UnderGenWorld3D::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("set_spawn_on_generation_complete", "enabled"), &UnderGenWorld3D::set_spawn_on_generation_complete);
     ClassDB::bind_method(D_METHOD("get_spawn_on_generation_complete"), &UnderGenWorld3D::get_spawn_on_generation_complete);
+    ClassDB::bind_method(D_METHOD("set_parent_node", "parent_node"), &UnderGenWorld3D::set_parent_node);
+    ClassDB::bind_method(D_METHOD("get_parent_node"), &UnderGenWorld3D::get_parent_node);
+    ClassDB::bind_method(D_METHOD("set_multiplayer_spawner", "path"), &UnderGenWorld3D::set_multiplayer_spawner);
+    ClassDB::bind_method(D_METHOD("get_multiplayer_spawner"), &UnderGenWorld3D::get_multiplayer_spawner);
     ClassDB::bind_method(D_METHOD("spawn_scenes", "parent_node"), &UnderGenWorld3D::spawn_scenes, DEFVAL(nullptr));
     ClassDB::bind_method(D_METHOD("spawn_scenes_for_node", "node_name", "parent_node"), &UnderGenWorld3D::spawn_scenes_for_node, DEFVAL(nullptr));
     ClassDB::bind_method(D_METHOD("get_point_set_from_node", "node_name"), &UnderGenWorld3D::get_point_set_from_node);
@@ -85,6 +91,8 @@ void UnderGenWorld3D::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "surface_threshold"), "set_surface_threshold", "get_surface_threshold");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_on_ready"), "set_generate_on_ready", "get_generate_on_ready");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "spawn_on_generation_complete"), "set_spawn_on_generation_complete", "get_spawn_on_generation_complete");
+    ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "parent_node"), "set_parent_node", "get_parent_node");
+    ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "multiplayer_spawner"), "set_multiplayer_spawner", "get_multiplayer_spawner");
 
     // Inspector button — toggle on to trigger generation
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "Generate Level"), "set_trigger_generate", "get_trigger_generate");
@@ -156,6 +164,22 @@ void UnderGenWorld3D::set_spawn_on_generation_complete(bool p_enabled) {
 
 bool UnderGenWorld3D::get_spawn_on_generation_complete() const {
     return spawn_on_generation_complete;
+}
+
+void UnderGenWorld3D::set_parent_node(const NodePath &p_path) {
+    parent_node_path = p_path;
+}
+
+NodePath UnderGenWorld3D::get_parent_node() const {
+    return parent_node_path;
+}
+
+void UnderGenWorld3D::set_multiplayer_spawner(const NodePath &p_path) {
+    multiplayer_spawner_path = p_path;
+}
+
+NodePath UnderGenWorld3D::get_multiplayer_spawner() const {
+    return multiplayer_spawner_path;
 }
 
 // ── Inspector "button" ─────────────────────────────────────────────────
@@ -259,17 +283,14 @@ void UnderGenWorld3D::_run_generation_async(int64_t p_seed) {
         }
     }
 
-    // Propagate surface threshold to placer node(s) in the pipeline
+    // Propagate settings (surface threshold and voxel size) to all nodes in the pipeline
     if (pipeline.is_valid()) {
         Array nodes = pipeline->get_nodes();
         for (int i = 0; i < nodes.size(); ++i) {
             Ref<UnderGenNode> node = nodes[i];
             if (node.is_null()) continue;
-            UnderGenBSPPlacerNode *placer_node =
-                Object::cast_to<UnderGenBSPPlacerNode>(node.ptr());
-            if (placer_node) {
-                placer_node->set_surface_threshold(surface_threshold);
-            }
+            node->set("surface_threshold", surface_threshold);
+            node->set("voxel_size", voxel_size);
         }
     }
 
@@ -493,17 +514,48 @@ void UnderGenWorld3D::spawn_scenes(Node *parent_node) {
         UtilityFunctions::printerr("UnderGenWorld3D::spawn_scenes: parent_node is not a Node3D.");
         return;
     }
+
+    Node *target_parent = parent_node;
+    if (!parent_node_path.is_empty()) {
+        Node *custom_parent = parent_node->get_node_or_null(parent_node_path);
+        if (custom_parent) {
+            target_parent = custom_parent;
+        } else {
+            UtilityFunctions::printerr("UnderGenWorld3D: Custom parent node not found at path: ", parent_node_path);
+        }
+    }
+
+    MultiplayerSpawner *spawner = nullptr;
+    if (!multiplayer_spawner_path.is_empty()) {
+        Node *spawner_node = parent_node->get_node_or_null(multiplayer_spawner_path);
+        if (spawner_node) {
+            spawner = Object::cast_to<MultiplayerSpawner>(spawner_node);
+            if (!spawner) {
+                UtilityFunctions::printerr("UnderGenWorld3D: Node at multiplayer_spawner path is not a MultiplayerSpawner.");
+            }
+        } else {
+            UtilityFunctions::printerr("UnderGenWorld3D: MultiplayerSpawner not found at path: ", multiplayer_spawner_path);
+        }
+    }
+
     if (pipeline.is_valid()) {
         Array nodes = pipeline->get_nodes();
         for (int i = 0; i < nodes.size(); ++i) {
             Ref<UnderGenNode> node = nodes[i];
             if (node.is_null()) continue;
 
-            UnderGenSceneSpawnerNode* spawner = Object::cast_to<UnderGenSceneSpawnerNode>(node.ptr());
-            if (spawner) {
-                Dictionary inputs = pipeline->get_node_inputs(spawner->get_name());
+            UnderGenSceneSpawnerNode* spawner_node = Object::cast_to<UnderGenSceneSpawnerNode>(node.ptr());
+            if (spawner_node) {
+                Dictionary inputs = pipeline->get_node_inputs(spawner_node->get_name());
                 Dictionary node_outputs;
-                spawner->execute_with_parent(inputs, node_outputs, parent_3d);
+                spawner_node->execute_with_parent(inputs, node_outputs, target_parent, spawner);
+            }
+
+            UnderGenMeshSpawnerNode* mesh_spawner_node = Object::cast_to<UnderGenMeshSpawnerNode>(node.ptr());
+            if (mesh_spawner_node) {
+                Dictionary inputs = pipeline->get_node_inputs(mesh_spawner_node->get_name());
+                Dictionary node_outputs;
+                mesh_spawner_node->execute_with_parent(inputs, node_outputs, target_parent);
             }
         }
     }
@@ -518,19 +570,50 @@ void UnderGenWorld3D::spawn_scenes_for_node(const String &node_name, Node *paren
         UtilityFunctions::printerr("UnderGenWorld3D::spawn_scenes_for_node: parent_node is not a Node3D.");
         return;
     }
+
+    Node *target_parent = parent_node;
+    if (!parent_node_path.is_empty()) {
+        Node *custom_parent = parent_node->get_node_or_null(parent_node_path);
+        if (custom_parent) {
+            target_parent = custom_parent;
+        } else {
+            UtilityFunctions::printerr("UnderGenWorld3D: Custom parent node not found at path: ", parent_node_path);
+        }
+    }
+
+    MultiplayerSpawner *spawner = nullptr;
+    if (!multiplayer_spawner_path.is_empty()) {
+        Node *spawner_node = parent_node->get_node_or_null(multiplayer_spawner_path);
+        if (spawner_node) {
+            spawner = Object::cast_to<MultiplayerSpawner>(spawner_node);
+            if (!spawner) {
+                UtilityFunctions::printerr("UnderGenWorld3D: Node at multiplayer_spawner path is not a MultiplayerSpawner.");
+            }
+        } else {
+            UtilityFunctions::printerr("UnderGenWorld3D: MultiplayerSpawner not found at path: ", multiplayer_spawner_path);
+        }
+    }
+
     if (pipeline.is_valid()) {
         Array nodes = pipeline->get_nodes();
         for (int i = 0; i < nodes.size(); ++i) {
             Ref<UnderGenNode> node = nodes[i];
             if (node.is_null()) continue;
             if (node->get_name() == node_name) {
-                UnderGenSceneSpawnerNode* spawner = Object::cast_to<UnderGenSceneSpawnerNode>(node.ptr());
-                if (spawner) {
+                UnderGenSceneSpawnerNode* spawner_node = Object::cast_to<UnderGenSceneSpawnerNode>(node.ptr());
+                if (spawner_node) {
                     Dictionary inputs = pipeline->get_node_inputs(node_name);
                     Dictionary node_outputs;
-                    spawner->execute_with_parent(inputs, node_outputs, parent_3d);
+                    spawner_node->execute_with_parent(inputs, node_outputs, target_parent, spawner);
                 } else {
-                    UtilityFunctions::printerr("UnderGenWorld3D::spawn_scenes_for_node: Node '", node_name, "' is not an UnderGenSceneSpawnerNode.");
+                    UnderGenMeshSpawnerNode* mesh_spawner_node = Object::cast_to<UnderGenMeshSpawnerNode>(node.ptr());
+                    if (mesh_spawner_node) {
+                        Dictionary inputs = pipeline->get_node_inputs(node_name);
+                        Dictionary node_outputs;
+                        mesh_spawner_node->execute_with_parent(inputs, node_outputs, target_parent);
+                    } else {
+                        UtilityFunctions::printerr("UnderGenWorld3D::spawn_scenes_for_node: Node '", node_name, "' is not a supported spawner node.");
+                    }
                 }
                 return;
             }

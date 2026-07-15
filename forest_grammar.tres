@@ -1,0 +1,60 @@
+[gd_resource type="Resource" script_class="LevelGrammarResource" format=3 uid="uid://ctrafamlahtg7"]
+
+[ext_resource type="Script" uid="uid://66c04m4pi7d4" path="res://addons/undergen_grammar_editor/core/room_type.gd" id="1_cdc8i"]
+[ext_resource type="Script" uid="uid://vaqbokka4bg5" path="res://addons/undergen_grammar_editor/core/graph_rule.gd" id="2_qvj08"]
+[ext_resource type="Script" uid="uid://co5bsh7k1xu86" path="res://addons/undergen_grammar_editor/core/level_grammar_resource.gd" id="3_mm2ai"]
+
+[sub_resource type="Resource" id="Resource_0636t"]
+script = ExtResource("1_cdc8i")
+symbol = "EntryRoom"
+color = Color(0, 0, 0, 1)
+min_size = Vector3i(15, 15, 15)
+max_size = Vector3i(25, 25, 25)
+vox_path = "res://assets/vox/test.vox"
+exclude_from_smoothing = true
+
+[sub_resource type="Resource" id="Resource_cdc8i"]
+script = ExtResource("1_cdc8i")
+symbol = "encounterroom"
+min_size = Vector3i(10, 7, 10)
+max_size = Vector3i(20, 15, 20)
+
+[sub_resource type="Resource" id="Resource_qvj08"]
+script = ExtResource("1_cdc8i")
+symbol = "ExitRoom"
+min_size = Vector3i(10, 7, 10)
+max_size = Vector3i(15, 15, 15)
+
+[sub_resource type="Resource" id="Resource_mm2ai"]
+script = ExtResource("2_qvj08")
+rule_name = "Rule0"
+lhs_symbol = "Axiom"
+rhs_nodes = Array[Dictionary]([{
+"editor_pos": Vector2(520, 200),
+"id": &"n3",
+"symbol": "ExitRoom"
+}, {
+"editor_pos": Vector2(240, 200),
+"id": &"n2",
+"symbol": "encounterroom"
+}, {
+"editor_pos": Vector2(-80, 220),
+"id": &"n1",
+"symbol": "EntryRoom"
+}])
+rhs_edges = Array[Dictionary]([{
+"from": "n1",
+"to": "n2",
+"type": "corridor"
+}, {
+"from": "n2",
+"to": "n3",
+"type": "corridor"
+}])
+
+[resource]
+script = ExtResource("3_mm2ai")
+axiom = "Axiom"
+room_types = Array[ExtResource("1_cdc8i")]([SubResource("Resource_0636t"), SubResource("Resource_cdc8i"), SubResource("Resource_qvj08")])
+state_variables = Array[String](["keys", "danger_level"])
+rules = Array[ExtResource("2_qvj08")]([SubResource("Resource_mm2ai")])

@@ -23,6 +23,7 @@ private:
     float path_wobble_magnitude = 0.0f;
     float path_wobble_frequency = 0.2f;
     bool connect_from_ground_level = false;
+    bool dont_carve_inside_rooms = false;
 
     // Organic Cave Shape
     float cave_ruggedness = 1.0f;
@@ -61,6 +62,8 @@ public:
     float get_path_wobble_frequency() const;
     void set_connect_from_ground_level(bool p_enabled);
     bool get_connect_from_ground_level() const;
+    void set_dont_carve_inside_rooms(bool p_enabled);
+    bool get_dont_carve_inside_rooms() const;
 
     // Organic Cave Shape
     void set_cave_ruggedness(float p_value);

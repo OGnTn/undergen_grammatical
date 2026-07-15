@@ -2,6 +2,7 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/math.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <algorithm>
 
 namespace godot {
 
@@ -25,6 +26,10 @@ void UnderGenSceneSpawnerNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_shuffle_points"), &UnderGenSceneSpawnerNode::get_shuffle_points);
     ClassDB::bind_method(D_METHOD("set_random_seed", "seed"), &UnderGenSceneSpawnerNode::set_random_seed);
     ClassDB::bind_method(D_METHOD("get_random_seed"), &UnderGenSceneSpawnerNode::get_random_seed);
+    ClassDB::bind_method(D_METHOD("set_consume_points", "consume"), &UnderGenSceneSpawnerNode::set_consume_points);
+    ClassDB::bind_method(D_METHOD("get_consume_points"), &UnderGenSceneSpawnerNode::get_consume_points);
+    ClassDB::bind_method(D_METHOD("set_force_readable_names", "force"), &UnderGenSceneSpawnerNode::set_force_readable_names);
+    ClassDB::bind_method(D_METHOD("get_force_readable_names"), &UnderGenSceneSpawnerNode::get_force_readable_names);
     ClassDB::bind_method(D_METHOD("spawn_scenes_with_parent", "inputs", "parent_node"), &UnderGenSceneSpawnerNode::spawn_scenes_with_parent);
 
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "scene_to_spawn", PROPERTY_HINT_RESOURCE_TYPE, "PackedScene"), "set_scene_to_spawn", "get_scene_to_spawn");
@@ -34,6 +39,8 @@ void UnderGenSceneSpawnerNode::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::INT, "spawn_limit"), "set_spawn_limit", "get_spawn_limit");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shuffle_points"), "set_shuffle_points", "get_shuffle_points");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "random_seed"), "set_random_seed", "get_random_seed");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "consume_points"), "set_consume_points", "get_consume_points");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "force_readable_names"), "set_force_readable_names", "get_force_readable_names");
 }
 
 void UnderGenSceneSpawnerNode::set_scene_to_spawn(const Variant &p_scene) {
@@ -63,17 +70,23 @@ void UnderGenSceneSpawnerNode::set_shuffle_points(bool p_shuffle) { shuffle_poin
 bool UnderGenSceneSpawnerNode::get_shuffle_points() const { return shuffle_points; }
 void UnderGenSceneSpawnerNode::set_random_seed(int64_t p_seed) { random_seed = p_seed; rng->set_seed(p_seed); }
 int64_t UnderGenSceneSpawnerNode::get_random_seed() const { return random_seed; }
+void UnderGenSceneSpawnerNode::set_consume_points(bool p_consume) { consume_points = p_consume; }
+bool UnderGenSceneSpawnerNode::get_consume_points() const { return consume_points; }
+void UnderGenSceneSpawnerNode::set_force_readable_names(bool p_force) { force_readable_names = p_force; }
+bool UnderGenSceneSpawnerNode::get_force_readable_names() const { return force_readable_names; }
 
 void UnderGenSceneSpawnerNode::_execute(const Dictionary &inputs, Dictionary &outputs) {
     // Passthrough - actual spawning requires scene tree, see execute_with_parent
     outputs[0] = inputs.get(0, Ref<UnderGenPointSet>());
 }
 
-void UnderGenSceneSpawnerNode::execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node3D* parent_node) {
-    if (!parent_node) {
-        UtilityFunctions::printerr("UnderGenSceneSpawnerNode: No parent node.");
+void UnderGenSceneSpawnerNode::execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node *target_parent, MultiplayerSpawner *multiplayer_spawner) {
+    if (!target_parent) {
+        UtilityFunctions::printerr("UnderGenSceneSpawnerNode: No target parent node.");
         return;
     }
+
+    MultiplayerSpawner *spawner = multiplayer_spawner;
 
     Ref<UnderGenPointSet> point_set = inputs.get(0, Ref<UnderGenPointSet>());
     if (point_set.is_null()) {
@@ -101,6 +114,8 @@ void UnderGenSceneSpawnerNode::execute_with_parent(const Dictionary &inputs, Dic
             std::swap(indices[i], indices[j]);
         }
     }
+
+    std::vector<size_t> spawned_indices;
 
     for (size_t idx : indices) {
         if (spawn_limit > 0 && spawned_count >= spawn_limit) {
@@ -149,10 +164,32 @@ void UnderGenSceneSpawnerNode::execute_with_parent(const Dictionary &inputs, Dic
                 xform.basis = xform.basis.rotated(Vector3(0, 1, 0), angle);
             }
         }
-        node3d->set_transform(xform);
+        if (spawner) {
+            Dictionary spawn_data;
+            spawn_data["scene_path"] = scene_to_spawn->get_path();
+            spawn_data["transform"] = xform;
 
-        parent_node->add_child(node3d);
-        spawned_count++;
+            Node *spawned = spawner->spawn(spawn_data);
+            if (spawned) {
+                spawned_count++;
+                spawned_indices.push_back(idx);
+            } else {
+                UtilityFunctions::printerr("UnderGenSceneSpawnerNode: MultiplayerSpawner failed to spawn node.");
+            }
+            node3d->queue_free();
+        } else {
+            node3d->set_transform(xform);
+            target_parent->add_child(node3d, force_readable_names);
+            spawned_count++;
+            spawned_indices.push_back(idx);
+        }
+    }
+
+    if (consume_points && !spawned_indices.empty()) {
+        std::sort(spawned_indices.begin(), spawned_indices.end(), std::greater<size_t>());
+        for (size_t idx : spawned_indices) {
+            point_set->remove_point((int)idx);
+        }
     }
 
     UtilityFunctions::print("UnderGenSceneSpawnerNode: Spawned ", spawned_count, " entities.");
@@ -164,13 +201,8 @@ void UnderGenSceneSpawnerNode::spawn_scenes_with_parent(const Dictionary &inputs
         UtilityFunctions::printerr("UnderGenSceneSpawnerNode::spawn_scenes_with_parent: parent_node is null.");
         return;
     }
-    Node3D *parent_3d = Object::cast_to<Node3D>(parent_node);
-    if (!parent_3d) {
-        UtilityFunctions::printerr("UnderGenSceneSpawnerNode::spawn_scenes_with_parent: parent_node is not a Node3D.");
-        return;
-    }
     Dictionary dummy_outputs;
-    execute_with_parent(inputs, dummy_outputs, parent_3d);
+    execute_with_parent(inputs, dummy_outputs, parent_node, nullptr);
 }
 
 } // namespace godot

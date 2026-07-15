@@ -1,7 +1,11 @@
 #include "undergen_material_stamper_node.h"
 #include "density_grid.h"
-#include <godot_cpp/variant/utility_functions.hpp>
+#include "grid_parallel.h"
+
 #include <godot_cpp/core/math.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
+
+#include <atomic>
 #include <map>
 #include <vector>
 
@@ -44,34 +48,28 @@ void UnderGenMaterialStamperNode::_execute(const Dictionary &inputs, Dictionary 
     int gsx = grid->get_grid_size_x();
     int gsy = grid->get_grid_size_y();
     int gsz = grid->get_grid_size_z();
+    int64_t total_size = grid->get_total_cell_count();
+    if (total_size <= 0 ||
+        grid->get_zone_data().size() < total_size ||
+        grid->get_material_data().size() < total_size) {
+        outputs[0] = context;
+        return;
+    }
 
-    // ── Pass 1: Build zone name → ALL zone ids map ─────────────────────
-    // A zone name can have MULTIPLE IDs because register_zone_name creates a
-    // new ID for every room of the same type. We must map ALL of them.
     std::map<String, std::vector<int>> zone_name_to_ids;
-
-    for (int z = 0; z < gsz; ++z) {
-        for (int y = 0; y < gsy; ++y) {
-            for (int x = 0; x < gsx; ++x) {
-                int zid = grid->get_zone_at(Vector3i(x, y, z));
-                if (zid > 0) {
-                    String zname = grid->get_zone_name_by_id(zid);
-                    auto &vec = zone_name_to_ids[zname];
-                    // Only add if not already present
-                    bool found = false;
-                    for (int v : vec) {
-                        if (v == zid) { found = true; break; }
-                    }
-                    if (!found) vec.push_back(zid);
-                }
-            }
+    int zone_count = grid->get_zone_count();
+    for (int zid = 1; zid < zone_count; ++zid) {
+        String zone_name = grid->get_zone_name_by_id(zid);
+        if (!zone_name.is_empty()) {
+            zone_name_to_ids[zone_name].push_back(zid);
         }
     }
 
-    // ── Diagnostic: print all zones actually found in the grid ─────────
     int total_ids = 0;
-    for (const auto &pair : zone_name_to_ids) total_ids += (int)pair.second.size();
-    UtilityFunctions::print("UnderGenMaterialStamperNode: Zones found in grid (", (int)zone_name_to_ids.size(), " names, ", total_ids, " ids):");
+    for (const auto &pair : zone_name_to_ids) {
+        total_ids += (int)pair.second.size();
+    }
+    UtilityFunctions::print("UnderGenMaterialStamperNode: Zones registered (", (int)zone_name_to_ids.size(), " names, ", total_ids, " ids):");
     for (const auto &pair : zone_name_to_ids) {
         String ids_str;
         for (size_t j = 0; j < pair.second.size(); ++j) {
@@ -81,15 +79,7 @@ void UnderGenMaterialStamperNode::_execute(const Dictionary &inputs, Dictionary 
         UtilityFunctions::print("   name=\"", pair.first, "\"  ids=[", ids_str, "]");
     }
 
-    // ── Resolve zone_name → material_id entries, build zone_id → material lookup ──
-    // First pass: find max zone ID to size the lookup vector
-    int max_zone_id = 0;
-    for (const auto &pair : zone_name_to_ids) {
-        for (int zid : pair.second) {
-            if (zid > max_zone_id) max_zone_id = zid;
-        }
-    }
-
+    int max_zone_id = Math::max(0, zone_count - 1);
     std::vector<int> zone_id_to_material(max_zone_id + 1, default_material_id);
 
     for (int i = 0; i < zone_material_map.size(); ++i) {
@@ -106,28 +96,38 @@ void UnderGenMaterialStamperNode::_execute(const Dictionary &inputs, Dictionary 
                     zone_id_to_material[zid] = mat_id;
                 }
             }
-            UtilityFunctions::print("UnderGenMaterialStamperNode: Mapped zone \"", zone_name, "\" (", (int)it->second.size(), " ids) → material ", mat_id);
+            UtilityFunctions::print("UnderGenMaterialStamperNode: Mapped zone \"", zone_name, "\" (", (int)it->second.size(), " ids) -> material ", mat_id);
         } else {
-            UtilityFunctions::print("UnderGenMaterialStamperNode: Zone '", zone_name, "' not found in grid, skipping.");
+            UtilityFunctions::print("UnderGenMaterialStamperNode: Zone '", zone_name, "' not registered, skipping.");
         }
     }
 
-    // ── Pass 2: Stamp material IDs onto every voxel ────────────────────
-    int stamped = 0;
-    for (int z = 0; z < gsz; ++z) {
-        for (int y = 0; y < gsy; ++y) {
-            for (int x = 0; x < gsx; ++x) {
-                Vector3i pos(x, y, z);
-                int zid = grid->get_zone_at(pos);
-                if (zid >= 0 && zid < (int)zone_id_to_material.size()) {
-                    grid->set_material_id(pos, zone_id_to_material[zid]);
-                    ++stamped;
+    const PackedInt32Array &zone_array = grid->get_zone_data();
+    PackedByteArray &material_array = grid->get_material_data_rw();
+    const int32_t *zone_data = zone_array.ptr();
+    uint8_t *material_data = material_array.ptrw();
+    std::atomic<int64_t> stamped(0);
+
+    parallel_for_z(gsz, total_size, [&](int, int z_begin, int z_end) {
+        int64_t local_stamped = 0;
+        for (int z = z_begin; z < z_end; ++z) {
+            int slice_offset = z * gsy * gsx;
+            for (int y = 0; y < gsy; ++y) {
+                int row_offset = slice_offset + y * gsx;
+                for (int x = 0; x < gsx; ++x) {
+                    int idx = row_offset + x;
+                    int zid = zone_data[idx];
+                    if (zid >= 0 && zid < (int)zone_id_to_material.size()) {
+                        material_data[idx] = (uint8_t)Math::clamp(zone_id_to_material[zid], 0, 255);
+                        ++local_stamped;
+                    }
                 }
             }
         }
-    }
+        stamped.fetch_add(local_stamped, std::memory_order_relaxed);
+    });
 
-    UtilityFunctions::print("UnderGenMaterialStamperNode: Stamped ", stamped, " voxels.");
+    UtilityFunctions::print("UnderGenMaterialStamperNode: Stamped ", (int64_t)stamped.load(), " voxels.");
     outputs[0] = context;
 }
 

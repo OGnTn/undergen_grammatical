@@ -1,0 +1,798 @@
+{
+    "connections": [
+        {
+            "from_node": "Grammar_Expander",
+            "from_port": 0,
+            "to_node": "Room_Placer",
+            "to_port": 1
+        },
+        {
+            "from_node": "Surface_Floors",
+            "from_port": 1,
+            "to_node": "Spawn_Filter_Boss",
+            "to_port": 0
+        },
+        {
+            "from_node": "Spawn_Filter_Boss",
+            "from_port": 0,
+            "to_node": "Spawner_Boss",
+            "to_port": 0
+        },
+        {
+            "from_node": "Surface_Sampler_17",
+            "from_port": 0,
+            "to_node": "Surface_Floors",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_18",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_19",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_207",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_208",
+            "to_port": 0
+        },
+        {
+            "from_node": "Surface_Floors",
+            "from_port": 0,
+            "to_node": "Surface_Sampler_232",
+            "to_port": 0
+        },
+        {
+            "from_node": "Surface_Sampler_232",
+            "from_port": 1,
+            "to_node": "Point_Filter_207",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_207",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_257",
+            "to_port": 0
+        },
+        {
+            "from_node": "Surface_Floors",
+            "from_port": 1,
+            "to_node": "Point_Filter_259",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_259",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_260",
+            "to_port": 0
+        },
+        {
+            "from_node": "Room_Placer",
+            "from_port": 0,
+            "to_node": "Zone_Materials",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_207",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_169",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_259",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_170",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_18",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_253",
+            "to_port": 0
+        },
+        {
+            "from_node": "Zone_Materials",
+            "from_port": 0,
+            "to_node": "Vox_Stamper_32",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_24",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_25",
+            "to_port": 0
+        },
+        {
+            "from_node": "Surface_Sampler_232",
+            "from_port": 1,
+            "to_node": "Point_Filter_24",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_207",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_26",
+            "to_port": 0
+        },
+        {
+            "from_node": "Surface_Sampler_232",
+            "from_port": 0,
+            "to_node": "Surface_Sampler_54",
+            "to_port": 0
+        },
+        {
+            "from_node": "Surface_Sampler_54",
+            "from_port": 0,
+            "to_node": "Terrain_Mesher",
+            "to_port": 0
+        },
+        {
+            "from_node": "Surface_Sampler_54",
+            "from_port": 1,
+            "to_node": "Point_Filter_55",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_55",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_56",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_18",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_60",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_18",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_92",
+            "to_port": 0
+        },
+        {
+            "from_node": "Surface_Sampler_17",
+            "from_port": 1,
+            "to_node": "Point_Filter_52",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_52",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_53",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_259",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_88",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_18",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_35",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_18",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_36",
+            "to_port": 0
+        },
+        {
+            "from_node": "Surface_Sampler_232",
+            "from_port": 1,
+            "to_node": "Point_Filter_18",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_52",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_80",
+            "to_port": 0
+        },
+        {
+            "from_node": "Point_Filter_18",
+            "from_port": 0,
+            "to_node": "Scene_Spawner_37",
+            "to_port": 0
+        },
+        {
+            "from_node": "Grid_Smooth",
+            "from_port": 0,
+            "to_node": "Surface_Sampler_17",
+            "to_port": 0
+        },
+        {
+            "from_node": "Vox_Stamper_32",
+            "from_port": 0,
+            "to_node": "Organic_Carver",
+            "to_port": 0
+        },
+        {
+            "from_node": "Organic_Carver",
+            "from_port": 0,
+            "to_node": "Grid_Warper_38",
+            "to_port": 0
+        },
+        {
+            "from_node": "Grid_Warper_38",
+            "from_port": 0,
+            "to_node": "Grid_Smooth",
+            "to_port": 0
+        }
+    ],
+    "nodes": [
+        {
+            "name": "Grammar_Expander",
+            "pos": "(0.0, 0.0)",
+            "properties": {
+                "grammar_resource_path": "res://resources/grammars/forest_grammar.tres",
+                "iterations": 5,
+                "max_nodes": 200
+            },
+            "type": "UnderGenGrammarNode"
+        },
+        {
+            "name": "Room_Placer",
+            "pos": "(320.0, -40.0)",
+            "properties": {
+                "grid_size_x": 256,
+                "grid_size_y": 48,
+                "grid_size_z": 256,
+                "margin_x": 32,
+                "margin_y": 12,
+                "margin_z": 32,
+                "spread_ratio": 0.5,
+                "surface_threshold": 0.100000001490116
+            },
+            "type": "UnderGenBSPPlacerNode"
+        },
+        {
+            "name": "Organic_Carver",
+            "pos": "(1280.0, -40.0)",
+            "properties": {
+                "cave_ceiling_ruggedness": 0.0,
+                "cave_floor_ruggedness": 0.0,
+                "cave_ruggedness": 1.0,
+                "cave_width_noise": 0.0,
+                "floor_flattening": 0.0,
+                "overhang_openness": 1.0,
+                "path_bend_factor": 0.400000005960464,
+                "path_brush_max_radius": 8,
+                "path_brush_min_radius": 4,
+                "path_brush_square": true,
+                "path_connect_from_ground_level": true,
+                "path_segments": 1,
+                "path_wobble_frequency": 0.0,
+                "path_wobble_magnitude": 0.0
+            },
+            "type": "UnderGenBezierCarverNode"
+        },
+        {
+            "name": "Noise_Detail",
+            "pos": "(1340.0, -540.0)",
+            "properties": {
+                "noise_frequency": 0.00899999961256981,
+                "noise_generator": "(res://resources/pipelines/forest_pipeline.tres::FastNoiseLite_212o2):<FastNoiseLite#-9223369731530998752>",
+                "noise_intensity": 0.5,
+                "noise_scale": 0.100000001490116,
+                "noise_seed": 42
+            },
+            "type": "UnderGenNoiseNode"
+        },
+        {
+            "name": "Zone_Materials",
+            "pos": "(620.0, -40.0)",
+            "properties": {
+                "default_material_id": 0,
+                "zone_material_map": [
+                    "<ZoneMaterialEntry#-9223369731480667102>"
+                ]
+            },
+            "type": "UnderGenMaterialStamperNode"
+        },
+        {
+            "name": "Grid_Smooth",
+            "pos": "(2080.0, -180.0)",
+            "properties": {
+                "smoothing_strength": 1
+            },
+            "type": "UnderGenSmoothNode"
+        },
+        {
+            "name": "Surface_Floors",
+            "pos": "(2780.0, 340.0)",
+            "properties": {
+                "slope_threshold": 0.600000023841858,
+                "surface_type": 3,
+                "voxel_size": 1.0,
+                "zone_filter": "",
+                "zone_match_mode": 1
+            },
+            "type": "UnderGenSurfaceSamplerNode"
+        },
+        {
+            "name": "Spawn_Filter_Boss",
+            "pos": "(2540.0, 900.0)",
+            "properties": {
+                "max_slope": 10.0,
+                "min_density": 0.200000002980232,
+                "min_slope": -10.0,
+                "min_spacing": 5.0,
+                "required_zone_name": "entryroom",
+                "zone_match_mode": 2
+            },
+            "type": "UnderGenPointFilterNode"
+        },
+        {
+            "name": "Spawner_Boss",
+            "pos": "(2900.0, 900.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 12345,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/decorations/glowshrooms.tscn):<PackedScene#-9223369766595380677>",
+                "shuffle_points": true,
+                "spawn_limit": 48,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Terrain_Mesher",
+            "pos": "(4200.0, 220.0)",
+            "properties": {
+                "chunk_size": 32,
+                "compute_shader": "<Object#null>",
+                "generate_collision": true,
+                "generate_liquid_trigger": true,
+                "generate_occluder": true,
+                "liquid_material": "<Object#null>",
+                "liquid_material_id": 2,
+                "terrain_materials": [
+                    "(res://assets/materials/auto_material.tres):<ShaderMaterial#-9223369752502519041>",
+                    "(res://assets/materials/auto_material_ruins.tres):<ShaderMaterial#-9223369752049534206>"
+                ],
+                "voxel_size": 1.0
+            },
+            "type": "UnderGenMesherNode"
+        },
+        {
+            "name": "Vox_Stamper_32",
+            "pos": "(960.0, -40.0)",
+            "properties": {
+                "connection_palette_index": 4,
+                "exclude_from_smoothing": true,
+                "exclude_from_warping": true,
+                "vox_inverse_density": false,
+                "vox_material_map": {
+                    "7": 1
+                },
+                "vox_spawn_map": {
+                    "2": "chest",
+                    "3": "enemy",
+                    "8": "PlayerStart",
+                    "9": "inactive_portal"
+                }
+            },
+            "type": "UnderGenVoxStampNode"
+        },
+        {
+            "name": "Surface_Sampler_17",
+            "pos": "(2420.0, -40.0)",
+            "properties": {
+                "slope_threshold": 0.600000023841858,
+                "surface_type": 3,
+                "voxel_size": 1.0,
+                "zone_filter": "",
+                "zone_match_mode": 1
+            },
+            "type": "UnderGenSurfaceSamplerNode"
+        },
+        {
+            "name": "Point_Filter_18",
+            "pos": "(3840.0, 40.0)",
+            "properties": {
+                "max_slope": 1.0,
+                "min_density": 0.0,
+                "min_slope": 0.0,
+                "min_spacing": 10.0,
+                "required_zone_name": "entryroom,corridor",
+                "zone_match_mode": 2
+            },
+            "type": "UnderGenPointFilterNode"
+        },
+        {
+            "name": "Scene_Spawner_19",
+            "pos": "(4200.0, 900.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/entities/wolf.tscn):<PackedScene#-9223369747737789632>",
+                "shuffle_points": true,
+                "spawn_limit": 12,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Scene_Spawner_80",
+            "pos": "(3280.0, -340.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/entities/wasp.tscn):<PackedScene#-9223369745992959147>",
+                "shuffle_points": true,
+                "spawn_limit": 12,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Point_Filter_207",
+            "pos": "(3860.0, 1400.0)",
+            "properties": {
+                "max_slope": 0.200000002980232,
+                "min_density": 0.0,
+                "min_slope": 0.0,
+                "min_spacing": 9.0,
+                "required_zone_name": "entryroom",
+                "zone_match_mode": 2
+            },
+            "type": "UnderGenPointFilterNode"
+        },
+        {
+            "name": "Scene_Spawner_208",
+            "pos": "(4220.0, 1560.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/decorations/oak_tree.tscn):<PackedScene#-9223369761964869004>",
+                "shuffle_points": true,
+                "spawn_limit": 24,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Surface_Sampler_232",
+            "pos": "(3360.0, -20.0)",
+            "properties": {
+                "slope_threshold": 0.600000023841858,
+                "surface_type": 0,
+                "voxel_size": 1.0,
+                "zone_filter": "",
+                "zone_match_mode": 1
+            },
+            "type": "UnderGenSurfaceSamplerNode"
+        },
+        {
+            "name": "Scene_Spawner_257",
+            "pos": "(4220.0, 1900.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/decorations/oak_bush.tscn):<PackedScene#-9223369760656246148>",
+                "shuffle_points": true,
+                "spawn_limit": 24,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Point_Filter_259",
+            "pos": "(2980.0, 800.0)",
+            "properties": {
+                "max_slope": 1.0,
+                "min_density": 0.0,
+                "min_slope": 0.200000002980232,
+                "min_spacing": 5.0,
+                "required_zone_name": "entryroom",
+                "zone_match_mode": 2
+            },
+            "type": "UnderGenPointFilterNode"
+        },
+        {
+            "name": "Scene_Spawner_260",
+            "pos": "(3300.0, 640.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/decorations/stone_ore.tscn):<PackedScene#-9223369745506419880>",
+                "shuffle_points": true,
+                "spawn_limit": 12,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Scene_Spawner_169",
+            "pos": "(4220.0, 1740.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/decorations/sticks.tscn):<PackedScene#-9223369745254761638>",
+                "shuffle_points": true,
+                "spawn_limit": 24,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Scene_Spawner_170",
+            "pos": "(3300.0, 800.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/decorations/rocks.tscn):<PackedScene#-9223369745003103394>",
+                "shuffle_points": false,
+                "spawn_limit": 16,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Scene_Spawner_253",
+            "pos": "(4200.0, 380.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/entities/chicken.tscn):<PackedScene#-9223369742469743725>",
+                "shuffle_points": true,
+                "spawn_limit": 12,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Point_Filter_24",
+            "pos": "(3720.0, 880.0)",
+            "properties": {
+                "max_slope": 0.0,
+                "min_density": 0.0,
+                "min_slope": 0.0,
+                "min_spacing": 0.0,
+                "required_zone_name": "",
+                "zone_match_mode": 1
+            },
+            "type": "UnderGenPointFilterNode"
+        },
+        {
+            "name": "Scene_Spawner_25",
+            "pos": "(3800.0, 1100.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/decorations/portal.tscn):<PackedScene#-9223369740204819598>",
+                "shuffle_points": true,
+                "spawn_limit": 1,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Scene_Spawner_26",
+            "pos": "(4220.0, 1400.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/decorations/fern.tscn):<PackedScene#-9223369760236815745>",
+                "shuffle_points": true,
+                "spawn_limit": 24,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Surface_Sampler_54",
+            "pos": "(3840.0, 220.0)",
+            "properties": {
+                "slope_threshold": 0.600000023841858,
+                "surface_type": 1,
+                "voxel_size": 1.0,
+                "zone_filter": "",
+                "zone_match_mode": 0
+            },
+            "type": "UnderGenSurfaceSamplerNode"
+        },
+        {
+            "name": "Point_Filter_55",
+            "pos": "(4200.0, 720.0)",
+            "properties": {
+                "max_slope": 0.100000001490116,
+                "min_density": 0.0,
+                "min_slope": 0.0,
+                "min_spacing": 0.0,
+                "required_zone_name": "entryroom",
+                "zone_match_mode": 2
+            },
+            "type": "UnderGenPointFilterNode"
+        },
+        {
+            "name": "Scene_Spawner_56",
+            "pos": "(4520.0, 720.0)",
+            "properties": {
+                "align_with_normal": false,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/test_proc_vine.tscn):<PackedScene#-9223369759733499263>",
+                "shuffle_points": true,
+                "spawn_limit": 48,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Scene_Spawner_60",
+            "pos": "(4200.0, 40.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/entities/frogman_ranger.tscn):<PackedScene#-9223369737604350999>",
+                "shuffle_points": true,
+                "spawn_limit": 12,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Scene_Spawner_92",
+            "pos": "(4200.0, 560.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/entities/pig.tscn):<PackedScene#-9223369736060847091>",
+                "shuffle_points": true,
+                "spawn_limit": 12,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Point_Filter_52",
+            "pos": "(2780.0, -20.0)",
+            "properties": {
+                "max_slope": 1.0,
+                "min_density": 0.0,
+                "min_slope": 0.0,
+                "min_spacing": 15.0,
+                "required_zone_name": "",
+                "zone_match_mode": 0
+            },
+            "type": "UnderGenPointFilterNode"
+        },
+        {
+            "name": "Scene_Spawner_53",
+            "pos": "(3280.0, -520.0)",
+            "properties": {
+                "align_with_normal": false,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/decorations/wisp.tscn):<PackedScene#-9223369757703456080>",
+                "shuffle_points": true,
+                "spawn_limit": 6,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Scene_Spawner_88",
+            "pos": "(3300.0, 980.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/decorations/iron_ore.tscn):<PackedScene#-9223369735121322993>",
+                "shuffle_points": true,
+                "spawn_limit": 16,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Scene_Spawner_35",
+            "pos": "(4200.0, 1060.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/entities/goblin.tscn):<PackedScene#-9223369732940284845>",
+                "shuffle_points": true,
+                "spawn_limit": 12,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Scene_Spawner_36",
+            "pos": "(4200.0, 1240.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/entities/goblin_ranger.tscn):<PackedScene#-9223369731749102469>",
+                "shuffle_points": true,
+                "spawn_limit": 12,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Scene_Spawner_37",
+            "pos": "(4220.0, -160.0)",
+            "properties": {
+                "align_with_normal": true,
+                "consume_points": true,
+                "force_readable_names": true,
+                "random_seed": 0,
+                "random_y_rotation": true,
+                "scene_to_spawn": "(res://scenes/decorations/cotton_plant.tscn):<PackedScene#-9223369759028856180>",
+                "shuffle_points": true,
+                "spawn_limit": 12,
+                "spawn_probability": 1.0
+            },
+            "type": "UnderGenSceneSpawnerNode"
+        },
+        {
+            "name": "Grid_Warper_38",
+            "pos": "(1600.0, 20.0)",
+            "properties": {
+                "noise_frequency": 0.0299999993294477,
+                "noise_generator": "(res://resources/pipelines/forest_pipeline.tres::FastNoiseLite_4foam):<FastNoiseLite#-9223369730406925146>",
+                "noise_seed": 1337,
+                "warp_amplitude": 4.0
+            },
+            "type": "UnderGenGridWarpNode"
+        }
+    ]
+}

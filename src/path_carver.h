@@ -32,6 +32,7 @@ public:
     float path_wobble_magnitude = 0.0f;
     float path_wobble_frequency = 0.2f;
     bool connect_from_ground_level = false;
+    bool dont_carve_inside_rooms = false;
 
     // AStar specific
     int dungeon_path_algorithm = ALGO_ASTAR;
@@ -54,6 +55,7 @@ public:
 private:
     float WORLD_OPEN_VALUE = 0.0f;
     float WORLD_SOLID_VALUE = 1.0f;
+    const std::vector<ResolvedRoom>* rooms_ptr = nullptr;
 
     struct DungeonNode {
         Vector3i pos;
@@ -76,7 +78,7 @@ private:
     
     // Dungeon Carving
     void _carve_dungeon_path(DensityGrid* grid, const Vector3 &start, const Vector3 &end);
-    void _carve_bezier_path(DensityGrid* grid, RandomNumberGenerator* rng, Ref<FastNoiseLite> wobble_noise, const Vector3 &start, const Vector3 &end);
+    void _carve_bezier_path(DensityGrid* grid, RandomNumberGenerator* rng, Ref<FastNoiseLite> wobble_noise, const Vector3 &start, const Vector3 &end, const Vector3 &start_normal, const Vector3 &end_normal);
     void _carve_corridor_segment(DensityGrid* grid, RandomNumberGenerator* rng, const Vector3i &from, const Vector3i &to);
     
     // Recursive / Castle Algo
