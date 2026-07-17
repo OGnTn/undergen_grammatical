@@ -25,10 +25,11 @@ void UnderGenSurfaceSamplerNode::_bind_methods() {
     BIND_ENUM_CONSTANT(CEILING);
     BIND_ENUM_CONSTANT(WALL);
     BIND_ENUM_CONSTANT(ALL);
+    BIND_ENUM_CONSTANT(ROOM_CONNECTIONS);
     BIND_ENUM_CONSTANT(ZONE_MATCH_EXACT);
     BIND_ENUM_CONSTANT(ZONE_MATCH_PREFIX);
 
-    ADD_PROPERTY(PropertyInfo(Variant::INT, "surface_type", PROPERTY_HINT_ENUM, "Floor,Ceiling,Wall,All"),
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "surface_type", PROPERTY_HINT_ENUM, "Floor,Ceiling,Wall,All,Room Connections"),
                  "set_surface_type", "get_surface_type");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "slope_threshold"), "set_slope_threshold", "get_slope_threshold");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "voxel_size"), "set_voxel_size", "get_voxel_size");
@@ -142,6 +143,80 @@ void UnderGenSurfaceSamplerNode::_execute(const Dictionary &inputs, Dictionary &
         }
         return false;
     };
+
+    if (surface_type == ROOM_CONNECTIONS) {
+        Array rooms_arr = context.get("rooms", Array());
+        for (int i = 0; i < rooms_arr.size(); ++i) {
+            Dictionary r_dict = rooms_arr[i];
+            String room_type = r_dict.get("type", "");
+            if (!zone_matches_fast(room_type)) continue;
+
+            Vector3i room_origin = r_dict.get("position", Vector3i());
+            Vector3i room_size = r_dict.get("size", Vector3i());
+            Array conn_pts = r_dict.get("connection_points", Array());
+
+            for (int j = 0; j < conn_pts.size(); ++j) {
+                Vector3 conn_pos = conn_pts[j];
+                Vector3i gp(
+                    (int)Math::round(conn_pos.x / voxel_size),
+                    (int)Math::round(conn_pos.y / voxel_size),
+                    (int)Math::round(conn_pos.z / voxel_size)
+                );
+
+                Vector3 normal(0, 0, 1);
+                // Robust check based on solid wall placement
+                bool wall_x = (grid->get_cell(gp + Vector3i(1, 0, 0)) > 0.5f) || 
+                              (grid->get_cell(gp - Vector3i(1, 0, 0)) > 0.5f);
+                bool wall_z = (grid->get_cell(gp + Vector3i(0, 0, 1)) > 0.5f) || 
+                              (grid->get_cell(gp - Vector3i(0, 0, 1)) > 0.5f);
+
+                float center_x = room_origin.x + room_size.x * 0.5f;
+                float center_z = room_origin.z + room_size.z * 0.5f;
+
+                if (wall_x && !wall_z) {
+                    // Walls are on X, so corridor/doorway runs along Z axis
+                    if (gp.z > center_z) {
+                        normal = Vector3(0, 0, 1);
+                    } else {
+                        normal = Vector3(0, 0, -1);
+                    }
+                } else if (wall_z && !wall_x) {
+                    // Walls are on Z, so corridor/doorway runs along X axis
+                    if (gp.x > center_x) {
+                        normal = Vector3(1, 0, 0);
+                    } else {
+                        normal = Vector3(-1, 0, 0);
+                    }
+                } else {
+                    // Fallback to room boundary coordinates
+                    if (gp.x == room_origin.x) {
+                        normal = Vector3(-1, 0, 0);
+                    } else if (gp.x == room_origin.x + room_size.x - 1) {
+                        normal = Vector3(1, 0, 0);
+                    } else if (gp.z == room_origin.z) {
+                        normal = Vector3(0, 0, -1);
+                    } else if (gp.z == room_origin.z + room_size.z - 1) {
+                        normal = Vector3(0, 0, 1);
+                    }
+                }
+
+                Dictionary attrs;
+                attrs["normal"] = normal;
+                attrs["zone"] = grid->get_zone_at(gp);
+                attrs["zone_name"] = room_type;
+                attrs["material"] = grid->get_material_id(gp);
+                attrs["slope"] = 1.0f;
+
+                Transform3D xform;
+                xform.origin = conn_pos;
+                point_set->add_raw_point(xform, 1.0f, attrs);
+            }
+        }
+
+        outputs[0] = context;
+        outputs[1] = point_set;
+        return;
+    }
 
     struct SampledPoint {
         Vector3 world_pos;

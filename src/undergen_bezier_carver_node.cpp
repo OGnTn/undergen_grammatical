@@ -194,6 +194,12 @@ void UnderGenBezierCarverNode::_execute(const Dictionary &inputs, Dictionary &ou
 
     carver.create_paths_from_edges(grid.ptr(), rng.ptr(), wobble_noise, rooms, edges);
 
+    // Write back fallback connection points to context for downstream nodes
+    for (int i = 0; i < rooms_arr.size(); ++i) {
+        Dictionary r_dict = rooms_arr[i];
+        r_dict["connection_points"] = rooms[i].connection_points;
+    }
+
     // Pack back to outputs
     outputs[0] = context; // Port 0: Generation Context
 }

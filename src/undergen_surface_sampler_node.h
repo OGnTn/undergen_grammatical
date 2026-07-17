@@ -18,7 +18,8 @@ public:
         FLOOR = 0,  // Normal pointing up (Y+)
         CEILING = 1, // Normal pointing down (Y-)
         WALL = 2,   // Normal mostly horizontal
-        ALL = 3
+        ALL = 3,
+        ROOM_CONNECTIONS = 4
     };
 
     enum ZoneMatchMode {

@@ -22,6 +22,7 @@ private:
     float spawn_probability = 1.0f;
     bool random_y_rotation = true;
     bool align_with_normal = false;
+    bool align_yaw_only = false;
     int spawn_limit = 0;
     bool shuffle_points = false;
     int64_t random_seed = 0;
@@ -44,6 +45,8 @@ public:
     bool get_random_y_rotation() const;
     void set_align_with_normal(bool p_align);
     bool get_align_with_normal() const;
+    void set_align_yaw_only(bool p_enabled);
+    bool get_align_yaw_only() const;
     void set_spawn_limit(int p_limit);
     int get_spawn_limit() const;
     void set_shuffle_points(bool p_shuffle);

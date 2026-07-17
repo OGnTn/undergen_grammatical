@@ -24,6 +24,10 @@ void UnderGenAStarCarverNode::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::INT, "path_brush_max_radius"), "set_path_brush_max_radius", "get_path_brush_max_radius");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_square_brush"), "set_use_square_brush", "get_use_square_brush");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "vertical_movement_cost_multiplier"), "set_vertical_movement_cost_multiplier", "get_vertical_movement_cost_multiplier");
+
+    ClassDB::bind_method(D_METHOD("set_connect_from_ground_level", "enabled"), &UnderGenAStarCarverNode::set_connect_from_ground_level);
+    ClassDB::bind_method(D_METHOD("get_connect_from_ground_level"), &UnderGenAStarCarverNode::get_connect_from_ground_level);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "path_connect_from_ground_level"), "set_connect_from_ground_level", "get_connect_from_ground_level");
 }
 
 void UnderGenAStarCarverNode::set_path_brush_min_radius(int p_radius) { path_brush_min_radius = p_radius; }
@@ -34,6 +38,8 @@ void UnderGenAStarCarverNode::set_use_square_brush(bool p_enabled) { use_square_
 bool UnderGenAStarCarverNode::get_use_square_brush() const { return use_square_brush; }
 void UnderGenAStarCarverNode::set_vertical_movement_cost_multiplier(float p_mult) { vertical_movement_cost_multiplier = p_mult; }
 float UnderGenAStarCarverNode::get_vertical_movement_cost_multiplier() const { return vertical_movement_cost_multiplier; }
+void UnderGenAStarCarverNode::set_connect_from_ground_level(bool p_enabled) { connect_from_ground_level = p_enabled; }
+bool UnderGenAStarCarverNode::get_connect_from_ground_level() const { return connect_from_ground_level; }
 
 void UnderGenAStarCarverNode::_execute(const Dictionary &inputs, Dictionary &outputs) {
     // Port 0: Generation Context (Dictionary)
@@ -95,9 +101,16 @@ void UnderGenAStarCarverNode::_execute(const Dictionary &inputs, Dictionary &out
     carver.path_brush_max_radius = path_brush_max_radius;
     carver.use_square_brush = use_square_brush;
     carver.vertical_movement_cost_multiplier = vertical_movement_cost_multiplier;
+    carver.connect_from_ground_level = connect_from_ground_level;
     carver.dungeon_mode = true; // Use A* corridors
 
     carver.create_paths_from_edges(grid.ptr(), rng.ptr(), wobble_noise, rooms, edges);
+
+    // Write back fallback connection points to context for downstream nodes
+    for (int i = 0; i < rooms_arr.size(); ++i) {
+        Dictionary r_dict = rooms_arr[i];
+        r_dict["connection_points"] = rooms[i].connection_points;
+    }
 
     // Pack back to outputs
     outputs[0] = context; // Port 0: Generation Context

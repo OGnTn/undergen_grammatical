@@ -280,8 +280,14 @@ void PathCarver::create_paths_from_edges(DensityGrid* grid, RandomNumberGenerato
                 if (!end_set) end_fallback = rB.center();
             }
 
-            if (!start_set) start_point = start_fallback;
-            if (!end_set) end_point = end_fallback;
+            if (!start_set) {
+                start_point = start_fallback;
+                const_cast<ResolvedRoom&>(rA).connection_points.append(start_point);
+            }
+            if (!end_set) {
+                end_point = end_fallback;
+                const_cast<ResolvedRoom&>(rB).connection_points.append(end_point);
+            }
         }
 
         if(dungeon_mode) {
@@ -712,7 +718,7 @@ void PathCarver::_carve_dungeon_path(DensityGrid* grid, const Vector3 &start, co
     DungeonNode final_node;
     bool found = false;
     int iterations = 0;
-    int max_iterations = 1000000;
+    int max_iterations = 5000000;
 
     while (!open_set.empty()) {
         DungeonNode current = open_set.top();
@@ -895,8 +901,9 @@ void PathCarver::_carve_dungeon_path(DensityGrid* grid, const Vector3 &start, co
                 grid->set_cell(p2, WORLD_OPEN_VALUE);
             }
         }
+        UtilityFunctions::print("Dungeon Pathfinding Succeeded. Start: ", start_i, " End: ", end_i, " Iterations: ", iterations);
     } else {
-        UtilityFunctions::printerr("Dungeon Pathfinding Failed. Falling back.");
+        UtilityFunctions::printerr("Dungeon Pathfinding Failed. Falling back. Start: ", start_i, " End: ", end_i, " Iterations: ", iterations, " Max: ", max_iterations);
         Ref<RandomNumberGenerator> temp_rng;
         temp_rng.instantiate();
         _carve_corridor_segment(grid, temp_rng.ptr(), start_i, end_i);

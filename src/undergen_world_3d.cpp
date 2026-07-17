@@ -7,6 +7,7 @@
 #include "density_grid.h"
 #include "undergen_point_set.h"
 #include "undergen_vox_stamp_node.h"
+#include "undergen_detail_stamper_node.h"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/classes/label3d.hpp>
 #include <godot_cpp/classes/multiplayer_spawner.hpp>
@@ -362,6 +363,15 @@ void UnderGenWorld3D::_on_meshing_completed(const Dictionary &outputs) {
             UnderGenVoxStampNode* stamper = Object::cast_to<UnderGenVoxStampNode>(node.ptr());
             if (stamper) {
                 Dictionary node_outputs = pipeline->get_node_outputs(stamper->get_name());
+                Dictionary context = node_outputs.get(0, Dictionary());
+                if (context.has("vox_spawns")) {
+                    Array spawns = context["vox_spawns"];
+                    vox_spawns.append_array(spawns);
+                }
+            }
+            UnderGenDetailStamperNode* detail_stamper = Object::cast_to<UnderGenDetailStamperNode>(node.ptr());
+            if (detail_stamper) {
+                Dictionary node_outputs = pipeline->get_node_outputs(detail_stamper->get_name());
                 Dictionary context = node_outputs.get(0, Dictionary());
                 if (context.has("vox_spawns")) {
                     Array spawns = context["vox_spawns"];

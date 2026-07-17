@@ -8,6 +8,7 @@ namespace godot {
 
 UnderGenSceneSpawnerNode::UnderGenSceneSpawnerNode() {
     rng.instantiate();
+    align_yaw_only = false;
 }
 UnderGenSceneSpawnerNode::~UnderGenSceneSpawnerNode() {}
 
@@ -20,6 +21,8 @@ void UnderGenSceneSpawnerNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_random_y_rotation"), &UnderGenSceneSpawnerNode::get_random_y_rotation);
     ClassDB::bind_method(D_METHOD("set_align_with_normal", "align"), &UnderGenSceneSpawnerNode::set_align_with_normal);
     ClassDB::bind_method(D_METHOD("get_align_with_normal"), &UnderGenSceneSpawnerNode::get_align_with_normal);
+    ClassDB::bind_method(D_METHOD("set_align_yaw_only", "enabled"), &UnderGenSceneSpawnerNode::set_align_yaw_only);
+    ClassDB::bind_method(D_METHOD("get_align_yaw_only"), &UnderGenSceneSpawnerNode::get_align_yaw_only);
     ClassDB::bind_method(D_METHOD("set_spawn_limit", "limit"), &UnderGenSceneSpawnerNode::set_spawn_limit);
     ClassDB::bind_method(D_METHOD("get_spawn_limit"), &UnderGenSceneSpawnerNode::get_spawn_limit);
     ClassDB::bind_method(D_METHOD("set_shuffle_points", "shuffle"), &UnderGenSceneSpawnerNode::set_shuffle_points);
@@ -36,6 +39,7 @@ void UnderGenSceneSpawnerNode::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "spawn_probability", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_spawn_probability", "get_spawn_probability");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "random_y_rotation"), "set_random_y_rotation", "get_random_y_rotation");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "align_with_normal"), "set_align_with_normal", "get_align_with_normal");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "align_yaw_only"), "set_align_yaw_only", "get_align_yaw_only");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "spawn_limit"), "set_spawn_limit", "get_spawn_limit");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shuffle_points"), "set_shuffle_points", "get_shuffle_points");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "random_seed"), "set_random_seed", "get_random_seed");
@@ -64,6 +68,8 @@ void UnderGenSceneSpawnerNode::set_random_y_rotation(bool p_enabled) { random_y_
 bool UnderGenSceneSpawnerNode::get_random_y_rotation() const { return random_y_rotation; }
 void UnderGenSceneSpawnerNode::set_align_with_normal(bool p_align) { align_with_normal = p_align; }
 bool UnderGenSceneSpawnerNode::get_align_with_normal() const { return align_with_normal; }
+void UnderGenSceneSpawnerNode::set_align_yaw_only(bool p_enabled) { align_yaw_only = p_enabled; }
+bool UnderGenSceneSpawnerNode::get_align_yaw_only() const { return align_yaw_only; }
 void UnderGenSceneSpawnerNode::set_spawn_limit(int p_limit) { spawn_limit = p_limit < 0 ? 0 : p_limit; }
 int UnderGenSceneSpawnerNode::get_spawn_limit() const { return spawn_limit; }
 void UnderGenSceneSpawnerNode::set_shuffle_points(bool p_shuffle) { shuffle_points = p_shuffle; }
@@ -145,18 +151,28 @@ void UnderGenSceneSpawnerNode::execute_with_parent(const Dictionary &inputs, Dic
         Transform3D xform = p.transform;
         if (align_with_normal) {
             Vector3 normal = p.attributes.get("normal", Vector3(0, 1, 0));
-            Vector3 up = Vector3(0, 1, 0);
-            if (normal.is_equal_approx(-up)) {
-                xform.basis = xform.basis.rotated(Vector3(1, 0, 0), Math_PI);
-            } else if (!normal.is_equal_approx(up)) {
-                Vector3 axis = up.cross(normal).normalized();
-                float angle = Math::acos(up.dot(normal));
-                xform.basis = xform.basis.rotated(axis, angle);
+            if (align_yaw_only) {
+                Vector3 flat_normal(normal.x, 0.0f, normal.z);
+                if (flat_normal.length_squared() > 0.001f) {
+                    flat_normal.normalize();
+                    float yaw = Math::atan2(flat_normal.x, flat_normal.z);
+                    xform.basis = xform.basis.rotated(Vector3(0, 1, 0), yaw);
+                }
+            } else {
+                Vector3 up = Vector3(0, 1, 0);
+                if (normal.is_equal_approx(-up)) {
+                    xform.basis = xform.basis.rotated(Vector3(1, 0, 0), Math_PI);
+                } else if (!normal.is_equal_approx(up)) {
+                    Vector3 axis = up.cross(normal).normalized();
+                    float angle = Math::acos(up.dot(normal));
+                    xform.basis = xform.basis.rotated(axis, angle);
+                }
             }
 
             if (random_y_rotation) {
                 float angle = rng->randf() * Math_TAU;
-                xform.basis = xform.basis.rotated(normal, angle);
+                Vector3 rot_axis = align_yaw_only ? Vector3(0, 1, 0) : normal;
+                xform.basis = xform.basis.rotated(rot_axis, angle);
             }
         } else {
             if (random_y_rotation) {

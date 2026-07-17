@@ -16,6 +16,7 @@ private:
     int path_brush_max_radius = 4;
     bool use_square_brush = false;
     float vertical_movement_cost_multiplier = 2.0f;
+    bool connect_from_ground_level = false;
 
     Ref<RandomNumberGenerator> rng;
     Ref<FastNoiseLite> wobble_noise;
@@ -35,6 +36,8 @@ public:
     bool get_use_square_brush() const;
     void set_vertical_movement_cost_multiplier(float p_mult);
     float get_vertical_movement_cost_multiplier() const;
+    void set_connect_from_ground_level(bool p_enabled);
+    bool get_connect_from_ground_level() const;
 
     virtual void _execute(const Dictionary &inputs, Dictionary &outputs) override;
 };
