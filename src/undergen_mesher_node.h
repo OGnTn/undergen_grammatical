@@ -58,7 +58,7 @@ public:
     bool get_flip_normals() const;
 
     // Called with the world node as context owner
-    void execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node3D* parent_node);
+    virtual void execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node3D* parent_node);
     virtual void _execute(const Dictionary &inputs, Dictionary &outputs) override;
 };
 

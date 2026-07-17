@@ -22,6 +22,8 @@
 #include "undergen_surface_sampler_node.h"
 #include "undergen_point_filter_node.h"
 #include "undergen_mesher_node.h"
+#include "dc_chunk.h"
+#include "undergen_dual_contour_mesher_node.h"
 #include "undergen_scene_spawner_node.h"
 #include "undergen_mesh_spawner_node.h"
 #include "undergen_grammar_node.h"
@@ -48,6 +50,7 @@ void initialize_density_grid_module(ModuleInitializationLevel p_level) {
     // --- Core classes ---
     ClassDB::register_class<DensityGrid>();
     ClassDB::register_class<MCChunk>();
+    ClassDB::register_class<DCChunk>();
 
     // --- New Pipeline Infrastructure ---
     ClassDB::register_class<UnderGenPointSet>();
@@ -70,6 +73,7 @@ void initialize_density_grid_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<UnderGenSurfaceSamplerNode>();
     ClassDB::register_class<UnderGenPointFilterNode>();
     ClassDB::register_class<UnderGenMesherNode>();
+    ClassDB::register_class<UnderGenDualContourMesherNode>();
     ClassDB::register_class<UnderGenSceneSpawnerNode>();
     ClassDB::register_class<UnderGenMeshSpawnerNode>();
     ClassDB::register_class<UnderGenGrammarNode>();
