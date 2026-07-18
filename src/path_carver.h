@@ -51,6 +51,9 @@ public:
     void connect_rooms(DensityGrid* grid, RandomNumberGenerator* rng, Ref<FastNoiseLite> wobble_noise, const TypedArray<Dictionary>& generated_rooms, float voxel_size, Vector3& out_spawn, Vector3& out_end);
     
     void create_paths_from_edges(DensityGrid* grid, RandomNumberGenerator* rng, Ref<FastNoiseLite> wobble_noise, const std::vector<ResolvedRoom>& rooms, const std::vector<ResolvedEdge>& edges);
+    
+    std::vector<std::vector<Vector3i>> get_dungeon_paths(DensityGrid* grid, RandomNumberGenerator* rng, std::vector<ResolvedRoom>& rooms, const std::vector<ResolvedEdge>& edges);
+    bool find_dungeon_path(DensityGrid* grid, const Vector3 &start, const Vector3 &end, std::vector<Vector3i>& out_path);
 
 private:
     float WORLD_OPEN_VALUE = 0.0f;

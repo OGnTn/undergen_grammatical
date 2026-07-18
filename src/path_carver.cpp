@@ -161,151 +161,167 @@ void PathCarver::connect_rooms(DensityGrid* grid, RandomNumberGenerator* rng, Re
 // Updated signature
 void PathCarver::create_paths_from_edges(DensityGrid* grid, RandomNumberGenerator* rng, Ref<FastNoiseLite> wobble_noise, const std::vector<ResolvedRoom>& rooms, const std::vector<ResolvedEdge>& edges) {
     rooms_ptr = &rooms;
-    for(const auto &edge : edges) {
-        int z_id = grid->register_zone_name(edge.type);
-        current_carving_zone_id = z_id;
-
-        // Safety Check for Room Indices
-        if (edge.from_index < 0 || edge.from_index >= rooms.size() || 
-            edge.to_index < 0 || edge.to_index >= rooms.size()) {
-            UtilityFunctions::printerr("PathCarver: Edge references invalid room indices: ", edge.from_index, " -> ", edge.to_index, ". Max: ", rooms.size());
-            continue;
-        }
-
-        const ResolvedRoom &rA = rooms[edge.from_index];
-        const ResolvedRoom &rB = rooms[edge.to_index];
+    if (dungeon_mode) {
+        std::vector<ResolvedRoom>& non_const_rooms = const_cast<std::vector<ResolvedRoom>&>(rooms);
+        std::vector<std::vector<Vector3i>> paths = get_dungeon_paths(grid, rng, non_const_rooms, edges);
         
-        Vector3 start_point;
-        Vector3 end_point;
-        bool start_set = false;
-        bool end_set = false;
+        int gsx = grid->get_grid_size_x();
+        int gsy = grid->get_grid_size_y();
+        int gsz = grid->get_grid_size_z();
+        Ref<RandomNumberGenerator> temp_rng;
+        temp_rng.instantiate();
+        temp_rng->set_seed(12345);
 
-        // Custom Connection Point Resolution
-        if (rA.connection_points.size() > 0 && rB.connection_points.size() > 0) {
-            Vector3 best_A = rA.connection_points[0];
-            Vector3 best_B = rB.connection_points[0];
-            float min_dist = best_A.distance_to(best_B);
-            for (int i = 0; i < rA.connection_points.size(); ++i) {
-                Vector3 ptA = rA.connection_points[i];
-                for (int j = 0; j < rB.connection_points.size(); ++j) {
-                    Vector3 ptB = rB.connection_points[j];
-                    float dist = ptA.distance_to(ptB);
-                    if (dist < min_dist) {
-                        min_dist = dist;
-                        best_A = ptA;
-                        best_B = ptB;
-                    }
+        for (const auto& path : paths) {
+            for (const Vector3i& p : path) {
+                _mark_brush(grid, temp_rng.ptr(), p, path_brush_min_radius, path_brush_max_radius, WORLD_OPEN_VALUE);
+                Vector3i p1 = p + Vector3i(0, 1, 0);
+                if (p1.x > 0 && p1.x < gsx - 1 && p1.y > 0 && p1.y < gsy - 1 && p1.z > 0 && p1.z < gsz - 1) {
+                    grid->set_cell(p1, WORLD_OPEN_VALUE);
                 }
-            }
-            start_point = best_A;
-            start_set = true;
-            end_point = best_B;
-            end_set = true;
-        } else {
-            if (rA.connection_points.size() > 0) {
-                Vector3 target = rB.center();
-                Vector3 closest_point = rA.connection_points[0];
-                float min_dist = closest_point.distance_to(target);
-                for (int j = 1; j < rA.connection_points.size(); ++j) {
-                    Vector3 pt = rA.connection_points[j];
-                    float dist = pt.distance_to(target);
-                    if (dist < min_dist) {
-                        min_dist = dist;
-                        closest_point = pt;
-                    }
+                Vector3i p2 = p + Vector3i(0, 2, 0);
+                if (p2.x > 0 && p2.x < gsx - 1 && p2.y > 0 && p2.y < gsy - 1 && p2.z > 0 && p2.z < gsz - 1) {
+                    grid->set_cell(p2, WORLD_OPEN_VALUE);
                 }
-                start_point = closest_point;
-                start_set = true;
-            }
-
-            if (rB.connection_points.size() > 0) {
-                Vector3 target = start_set ? start_point : rA.center();
-                Vector3 closest_point = rB.connection_points[0];
-                float min_dist = closest_point.distance_to(target);
-                for (int j = 1; j < rB.connection_points.size(); ++j) {
-                    Vector3 pt = rB.connection_points[j];
-                    float dist = pt.distance_to(target);
-                    if (dist < min_dist) {
-                        min_dist = dist;
-                        closest_point = pt;
-                    }
-                }
-                end_point = closest_point;
-                end_set = true;
             }
         }
+    } else {
+        for(const auto &edge : edges) {
+            if (edge.from_index < 0 || edge.from_index >= rooms.size() || 
+                edge.to_index < 0 || edge.to_index >= rooms.size()) {
+                UtilityFunctions::printerr("PathCarver: Edge references invalid room indices: ", edge.from_index, " -> ", edge.to_index, ". Max: ", rooms.size());
+                continue;
+            }
 
-        // Fallbacks if connection points aren't defined
-        if (!start_set || !end_set) {
-            Vector3 start_fallback = start_point;
-            Vector3 end_fallback = end_point;
+            const ResolvedRoom &rA = rooms[edge.from_index];
+            const ResolvedRoom &rB = rooms[edge.to_index];
+            
+            Vector3 start_point;
+            Vector3 end_point;
+            bool start_set = false;
+            bool end_set = false;
 
-            if (connect_from_ground_level) {
-                Vector3i rA_start = rA.position;
-                Vector3i rA_end = rA.position + rA.size;
-                Vector3i rB_start = rB.position;
-                Vector3i rB_end = rB.position + rB.size;
+            if (rA.connection_points.size() > 0 && rB.connection_points.size() > 0) {
+                Vector3 best_A = rA.connection_points[0];
+                Vector3 best_B = rB.connection_points[0];
+                float min_dist = best_A.distance_to(best_B);
+                for (int i = 0; i < rA.connection_points.size(); ++i) {
+                    Vector3 ptA = rA.connection_points[i];
+                    for (int j = 0; j < rB.connection_points.size(); ++j) {
+                        Vector3 ptB = rB.connection_points[j];
+                        float dist = ptA.distance_to(ptB);
+                        if (dist < min_dist) {
+                            min_dist = dist;
+                            best_A = ptA;
+                            best_B = ptB;
+                        }
+                    }
+                }
+                start_point = best_A;
+                start_set = true;
+                end_point = best_B;
+                end_set = true;
+            } else {
+                if (rA.connection_points.size() > 0) {
+                    Vector3 target = rB.center();
+                    Vector3 closest_point = rA.connection_points[0];
+                    float min_dist = closest_point.distance_to(target);
+                    for (int j = 1; j < rA.connection_points.size(); ++j) {
+                        Vector3 pt = rA.connection_points[j];
+                        float dist = pt.distance_to(target);
+                        if (dist < min_dist) {
+                            min_dist = dist;
+                            closest_point = pt;
+                        }
+                    }
+                    start_point = closest_point;
+                    start_set = true;
+                }
 
-                Vector3 rA_center = rA.center();
-                Vector3 rB_center = rB.center();
-                Vector3 direction_vector = rB_center - rA_center;
+                if (rB.connection_points.size() > 0) {
+                    Vector3 target = start_set ? start_point : rA.center();
+                    Vector3 closest_point = rB.connection_points[0];
+                    float min_dist = closest_point.distance_to(target);
+                    for (int j = 1; j < rB.connection_points.size(); ++j) {
+                        Vector3 pt = rB.connection_points[j];
+                        float dist = pt.distance_to(target);
+                        if (dist < min_dist) {
+                            min_dist = dist;
+                            closest_point = pt;
+                        }
+                    }
+                    end_point = closest_point;
+                    end_set = true;
+                }
+            }
+
+            if (!start_set || !end_set) {
+                Vector3 start_fallback = start_point;
+                Vector3 end_fallback = end_point;
+
+                if (connect_from_ground_level) {
+                    Vector3i rA_start = rA.position;
+                    Vector3i rA_end = rA.position + rA.size;
+                    Vector3i rB_start = rB.position;
+                    Vector3i rB_end = rB.position + rB.size;
+
+                    Vector3 rA_center = rA.center();
+                    Vector3 rB_center = rB.center();
+                    Vector3 direction_vector = rB_center - rA_center;
+
+                    if (!start_set) {
+                        int start_y = Math::max(rA_start.y, 1);
+                        int start_x, start_z;
+                        if (abs(direction_vector.x) > abs(direction_vector.z)) {
+                            start_z = rng->randi_range(rA_start.z, rA_end.z - 1);
+                            start_x = (direction_vector.x > 0) ? rA_end.x - 1 : rA_start.x;
+                        } else {
+                            start_x = rng->randi_range(rA_start.x, rA_end.x - 1);
+                            start_z = (direction_vector.z > 0) ? rA_end.z - 1 : rA_start.z;
+                        }
+                        start_fallback = Vector3(start_x, start_y, start_z);
+                    }
+
+                    if (!end_set) {
+                        int end_y = Math::max(rB_start.y, 1);
+                        int end_x, end_z;
+                        if (abs(direction_vector.x) > abs(direction_vector.z)) {
+                            end_z = rng->randi_range(rB_start.z, rB_end.z - 1);
+                            end_x = (direction_vector.x > 0) ? rB_start.x : rB_end.x - 1;
+                        } else {
+                            end_x = rng->randi_range(rB_start.x, rB_end.x - 1);
+                            end_z = (direction_vector.z > 0) ? rB_start.z : rB_end.z - 1;
+                        }
+                        end_fallback = Vector3(end_x, end_y, end_z);
+                    }
+                } else {
+                    if (!start_set) start_fallback = rA.center();
+                    if (!end_set) end_fallback = rB.center();
+                }
 
                 if (!start_set) {
-                    int start_y = Math::max(rA_start.y, 1);
-                    int start_x, start_z;
-                    if (abs(direction_vector.x) > abs(direction_vector.z)) {
-                        start_z = rng->randi_range(rA_start.z, rA_end.z - 1);
-                        start_x = (direction_vector.x > 0) ? rA_end.x - 1 : rA_start.x;
-                    } else {
-                        start_x = rng->randi_range(rA_start.x, rA_end.x - 1);
-                        start_z = (direction_vector.z > 0) ? rA_end.z - 1 : rA_start.z;
-                    }
-                    start_fallback = Vector3(start_x, start_y, start_z);
+                    start_point = start_fallback;
+                    const_cast<ResolvedRoom&>(rA).connection_points.append(start_point);
                 }
-
                 if (!end_set) {
-                    int end_y = Math::max(rB_start.y, 1);
-                    int end_x, end_z;
-                    if (abs(direction_vector.x) > abs(direction_vector.z)) {
-                        end_z = rng->randi_range(rB_start.z, rB_end.z - 1);
-                        end_x = (direction_vector.x > 0) ? rB_start.x : rB_end.x - 1;
-                    } else {
-                        end_x = rng->randi_range(rB_start.x, rB_end.x - 1);
-                        end_z = (direction_vector.z > 0) ? rB_start.z : rB_end.z - 1;
-                    }
-                    end_fallback = Vector3(end_x, end_y, end_z);
+                    end_point = end_fallback;
+                    const_cast<ResolvedRoom&>(rB).connection_points.append(end_point);
                 }
-            } else {
-                if (!start_set) start_fallback = rA.center();
-                if (!end_set) end_fallback = rB.center();
             }
 
-            if (!start_set) {
-                start_point = start_fallback;
-                const_cast<ResolvedRoom&>(rA).connection_points.append(start_point);
+            Vector3 start_normal(0, 0, 0);
+            Vector3 diff_start = start_point - rA.center();
+            if (diff_start.length_squared() > 0.001f) {
+                start_normal = diff_start.normalized();
             }
-            if (!end_set) {
-                end_point = end_fallback;
-                const_cast<ResolvedRoom&>(rB).connection_points.append(end_point);
+
+            Vector3 end_normal(0, 0, 0);
+            Vector3 diff_end = end_point - rB.center();
+            if (diff_end.length_squared() > 0.001f) {
+                end_normal = diff_end.normalized();
             }
-        }
 
-        if(dungeon_mode) {
-             _carve_dungeon_path(grid, start_point, end_point);
-        } else {
-             Vector3 start_normal(0, 0, 0);
-             Vector3 diff_start = start_point - rA.center();
-             if (diff_start.length_squared() > 0.001f) {
-                 start_normal = diff_start.normalized();
-             }
-
-             Vector3 end_normal(0, 0, 0);
-             Vector3 diff_end = end_point - rB.center();
-             if (diff_end.length_squared() > 0.001f) {
-                 end_normal = diff_end.normalized();
-             }
-
-             _carve_bezier_path(grid, rng, wobble_noise, start_point, end_point, start_normal, end_normal);
+            _carve_bezier_path(grid, rng, wobble_noise, start_point, end_point, start_normal, end_normal);
         }
     }
     current_carving_zone_id = 0;
@@ -673,16 +689,13 @@ void PathCarver::_carve_corridor_segment(DensityGrid* grid, RandomNumberGenerato
 
 // ================= DUNGEON A* =================
 
-void PathCarver::_carve_dungeon_path(DensityGrid* grid, const Vector3 &start, const Vector3 &end) {
+bool PathCarver::find_dungeon_path(DensityGrid* grid, const Vector3 &start, const Vector3 &end, std::vector<Vector3i>& out_path) {
     Vector3i start_i(start);
     Vector3i end_i(end);
 
     int gsx = grid->get_grid_size_x();
     int gsy = grid->get_grid_size_y();
     int gsz = grid->get_grid_size_z();
-
-    Time* time = Time::get_singleton();
-    uint64_t t_start = time->get_ticks_usec();
 
     float surf_thresh = grid->get_surface_threshold();
 
@@ -738,24 +751,14 @@ void PathCarver::_carve_dungeon_path(DensityGrid* grid, const Vector3 &start, co
         struct DirOpt { Vector3i dir; bool is_stair; int y_change; };
         
         Vector3i d_flat = current.arrived_from_dir; 
-        if (d_flat.y != 0) d_flat = Vector3i(0,0,0); // If we came from vert, we have no flat momentum
+        if (d_flat.y != 0) d_flat = Vector3i(0,0,0); 
 
         // Available moves
         std::vector<DirOpt> options = {
             { Vector3i(1, 0, 0), false, 0 }, { Vector3i(-1, 0, 0), false, 0 },
             { Vector3i(0, 0, 1), false, 0 }, { Vector3i(0, 0, -1), false, 0 }
         };
-
-        // Add stairs (must move 1 flat + 1 vert)
-        // We only add stairs if we have a valid flat direction (momentum) OR we pick a new one?
-        // Actually, "Stair" implies moving forward AND up/down.
-        // For simplicity from original code: we allow moving in current flat dir + up/down.
-        // OR if stationary, try all 4. 
-        // Original code hardcoded some specific logic. I will implement simplified "Moves":
-        // 1. Move Flat (Cardinal)
-        // 2. Move Stair (Cardinal + Up/Down)
         
-        // Let's expand options to include stairs for all cardinals
         std::vector<DirOpt> expanded_options;
         for(auto& o : options) {
             expanded_options.push_back(o); // Flat
@@ -764,49 +767,39 @@ void PathCarver::_carve_dungeon_path(DensityGrid* grid, const Vector3 &start, co
         }
 
         for (const auto& opt : expanded_options) {
-            Vector3i next_pos = current.pos + opt.dir; // e.g. (1, 1, 0)
+            Vector3i next_pos = current.pos + opt.dir; 
             
-            // 1. Boundary Check (Relaxed to allow rooms near edge)
             if (next_pos.x < 1 || next_pos.x >= gsx - 1 ||
                 next_pos.y < 1 || next_pos.y >= gsy - 1 ||
                 next_pos.z < 1 || next_pos.z >= gsz - 1) {
                 continue;
             }
 
-            // 2. Determine State
-            // Is this a straight move?
-            // "Straight" means the flat component matches current.arrived_from_dir
-            Vector3i flat_move_dir = Vector3i(opt.dir.x, 0, opt.dir.z); // Extract flat part
-            // Note: opt.dir for stair is (1,1,0). Flat part (1,0,0).
+            Vector3i flat_move_dir = Vector3i(opt.dir.x, 0, opt.dir.z); 
             bool is_straight = (flat_move_dir == d_flat) || (d_flat == Vector3i(0,0,0));
 
             int move_cost = COST_MOVE_BASE;
 
-            // A. Room Avoidance
             float cell_val = grid->get_cell(next_pos, WORLD_SOLID_VALUE);
             if (cell_val < surf_thresh && next_pos != end_i && next_pos != start_i) {
                 move_cost += COST_ROOM_PENALTY;
             }
 
-            // B. Turn Logic
             if (!is_straight) {
                 int reduction = current.straight_dist * COST_TURN_DECAY;
                 int turn_cost = Math::max(COST_TURN_MIN, COST_TURN_BASE - reduction);
                 move_cost += turn_cost;
             }
 
-            // C. Stair Logic
              if (opt.is_stair) {
                 if (current.is_in_staircase) {
-                    // Continuing
                     Vector3i prev_move = current.pos - current.parent_pos;
                     if (Math::sign(prev_move.y) != opt.y_change) {
-                        move_cost += 2000; // Penalty for zigzag
+                        move_cost += 2000; 
                     }
                     move_cost += COST_STAIR_STEP_BASE;
                     move_cost += (current.current_stair_len * COST_STAIR_LEN_PENALTY);
                 } else {
-                    // Starting
                     int reduction = current.dist_since_stair * COST_STAIR_START_DECAY;
                     int start_cost = Math::max(COST_STAIR_START_MIN, COST_STAIR_START_BASE - reduction);
                     move_cost += start_cost;
@@ -852,7 +845,6 @@ void PathCarver::_carve_dungeon_path(DensityGrid* grid, const Vector3 &start, co
     }
 
     if (found) {
-        // Reconstruct
         std::vector<Vector3i> path;
         DungeonNode curr = final_node;
         while (curr.pos != start_i) {
@@ -860,7 +852,6 @@ void PathCarver::_carve_dungeon_path(DensityGrid* grid, const Vector3 &start, co
             int64_t idx = get_idx(curr.pos);
             if (came_from.find(idx) == came_from.end()) break;
             
-            // Parent Lookup
             int64_t parent_idx = get_idx(curr.parent_pos);
             if (came_from.find(parent_idx) != came_from.end()) {
                 curr = came_from[parent_idx];
@@ -871,21 +862,19 @@ void PathCarver::_carve_dungeon_path(DensityGrid* grid, const Vector3 &start, co
             }
         }
         path.push_back(start_i);
+        std::reverse(path.begin(), path.end());
+        out_path = path;
+        return true;
+    }
+    return false;
+}
 
-        // Dummy RNG for brush (if needed) - we'll just pass nullptr if we used a strict mark method,
-        // but our _mark_brush uses RNG for jitter.
-        // We need an RNG instance. Since we don't have one passed here easily (wait, we have one in class if we stored it?)
-        // Design fix: pass RNG to _carve_dungeon_path.
-        // I'll create a temp local RNG if needed or update signature.
-        // Updating signature is cleaner. For now using a local one to save time/complexity of update?
-        // No, I added Update signature in header: `_carve_dungeon_path(DensityGrid*, ...)`
-        // I need to update header to pass RNG.
-        // Re-reading `path_carver.h` I just wrote...
-        // `_carve_dungeon_path(DensityGrid* grid, const Vector3 &start, const Vector3 &end);`
-        // I should have passed RNG. I will instantiate a local one to avoid header rewrite, 
-        // OR better: use `RandomNumberGenerator rng; rng.set_seed(1234);`
-        // Actually, keeping strict path visualization is better without jitter.
-        // So I'll pass a dummy RNG or create one.
+void PathCarver::_carve_dungeon_path(DensityGrid* grid, const Vector3 &start, const Vector3 &end) {
+    std::vector<Vector3i> path;
+    if (find_dungeon_path(grid, start, end, path)) {
+        int gsx = grid->get_grid_size_x();
+        int gsy = grid->get_grid_size_y();
+        int gsz = grid->get_grid_size_z();
         Ref<RandomNumberGenerator> temp_rng;
         temp_rng.instantiate();
         temp_rng->set_seed(12345);
@@ -901,13 +890,163 @@ void PathCarver::_carve_dungeon_path(DensityGrid* grid, const Vector3 &start, co
                 grid->set_cell(p2, WORLD_OPEN_VALUE);
             }
         }
-        UtilityFunctions::print("Dungeon Pathfinding Succeeded. Start: ", start_i, " End: ", end_i, " Iterations: ", iterations);
+        UtilityFunctions::print("Dungeon Pathfinding Succeeded. Start: ", start, " End: ", end);
     } else {
-        UtilityFunctions::printerr("Dungeon Pathfinding Failed. Falling back. Start: ", start_i, " End: ", end_i, " Iterations: ", iterations, " Max: ", max_iterations);
+        UtilityFunctions::printerr("Dungeon Pathfinding Failed. Falling back. Start: ", start, " End: ", end);
         Ref<RandomNumberGenerator> temp_rng;
         temp_rng.instantiate();
-        _carve_corridor_segment(grid, temp_rng.ptr(), start_i, end_i);
+        _carve_corridor_segment(grid, temp_rng.ptr(), Vector3i(start), Vector3i(end));
     }
+}
+
+std::vector<std::vector<Vector3i>> PathCarver::get_dungeon_paths(DensityGrid* grid, RandomNumberGenerator* rng, std::vector<ResolvedRoom>& rooms, const std::vector<ResolvedEdge>& edges) {
+    rooms_ptr = &rooms;
+    std::vector<std::vector<Vector3i>> all_paths;
+    for (const auto &edge : edges) {
+        if (edge.from_index < 0 || edge.from_index >= rooms.size() || 
+            edge.to_index < 0 || edge.to_index >= rooms.size()) {
+            UtilityFunctions::printerr("PathCarver: Edge references invalid room indices: ", edge.from_index, " -> ", edge.to_index, ". Max: ", rooms.size());
+            continue;
+        }
+
+        ResolvedRoom &rA = rooms[edge.from_index];
+        ResolvedRoom &rB = rooms[edge.to_index];
+        
+        Vector3 start_point;
+        Vector3 end_point;
+        bool start_set = false;
+        bool end_set = false;
+
+        // Custom Connection Point Resolution
+        if (rA.connection_points.size() > 0 && rB.connection_points.size() > 0) {
+            Vector3 best_A = rA.connection_points[0];
+            Vector3 best_B = rB.connection_points[0];
+            float min_dist = best_A.distance_to(best_B);
+            for (int i = 0; i < rA.connection_points.size(); ++i) {
+                Vector3 ptA = rA.connection_points[i];
+                for (int j = 0; j < rB.connection_points.size(); ++j) {
+                    Vector3 ptB = rB.connection_points[j];
+                    float dist = ptA.distance_to(ptB);
+                    if (dist < min_dist) {
+                        min_dist = dist;
+                        best_A = ptA;
+                        best_B = ptB;
+                    }
+                }
+            }
+            start_point = best_A;
+            start_set = true;
+            end_point = best_B;
+            end_set = true;
+        } else {
+            if (rA.connection_points.size() > 0) {
+                Vector3 target = rB.center();
+                Vector3 closest_point = rA.connection_points[0];
+                float min_dist = closest_point.distance_to(target);
+                for (int j = 1; j < rA.connection_points.size(); ++j) {
+                    Vector3 pt = rA.connection_points[j];
+                    float dist = pt.distance_to(target);
+                    if (dist < min_dist) {
+                        min_dist = dist;
+                        closest_point = pt;
+                    }
+                }
+                start_point = closest_point;
+                start_set = true;
+            }
+
+            if (rB.connection_points.size() > 0) {
+                Vector3 target = start_set ? start_point : rA.center();
+                Vector3 closest_point = rB.connection_points[0];
+                float min_dist = closest_point.distance_to(target);
+                for (int j = 1; j < rB.connection_points.size(); ++j) {
+                    Vector3 pt = rB.connection_points[j];
+                    float dist = pt.distance_to(target);
+                    if (dist < min_dist) {
+                        min_dist = dist;
+                        closest_point = pt;
+                    }
+                }
+                end_point = closest_point;
+                end_set = true;
+            }
+        }
+
+        // Fallbacks if connection points aren't defined
+        if (!start_set || !end_set) {
+            Vector3 start_fallback = start_point;
+            Vector3 end_fallback = end_point;
+
+            if (connect_from_ground_level) {
+                Vector3i rA_start = rA.position;
+                Vector3i rA_end = rA.position + rA.size;
+                Vector3i rB_start = rB.position;
+                Vector3i rB_end = rB.position + rB.size;
+
+                Vector3 rA_center = rA.center();
+                Vector3 rB_center = rB.center();
+                Vector3 direction_vector = rB_center - rA_center;
+
+                if (!start_set) {
+                    int start_y = Math::max(rA_start.y, 1);
+                    int start_x, start_z;
+                    if (abs(direction_vector.x) > abs(direction_vector.z)) {
+                        start_z = rng->randi_range(rA_start.z, rA_end.z - 1);
+                        start_x = (direction_vector.x > 0) ? rA_end.x - 1 : rA_start.x;
+                    } else {
+                        start_x = rng->randi_range(rA_start.x, rA_end.x - 1);
+                        start_z = (direction_vector.z > 0) ? rA_end.z - 1 : rA_start.z;
+                    }
+                    start_fallback = Vector3(start_x, start_y, start_z);
+                }
+
+                if (!end_set) {
+                    int end_y = Math::max(rB_start.y, 1);
+                    int end_x, end_z;
+                    if (abs(direction_vector.x) > abs(direction_vector.z)) {
+                        end_z = rng->randi_range(rB_start.z, rB_end.z - 1);
+                        end_x = (direction_vector.x > 0) ? rB_start.x : rB_end.x - 1;
+                    } else {
+                        end_x = rng->randi_range(rB_start.x, rB_end.x - 1);
+                        end_z = (direction_vector.z > 0) ? rB_start.z : rB_end.z - 1;
+                    }
+                    end_fallback = Vector3(end_x, end_y, end_z);
+                }
+            } else {
+                if (!start_set) start_fallback = rA.center();
+                if (!end_set) end_fallback = rB.center();
+            }
+
+            if (!start_set) {
+                start_point = start_fallback;
+                rA.connection_points.append(start_point);
+            }
+            if (!end_set) {
+                end_point = end_fallback;
+                rB.connection_points.append(end_point);
+            }
+        }
+
+        std::vector<Vector3i> path;
+        if (find_dungeon_path(grid, start_point, end_point, path)) {
+            all_paths.push_back(path);
+        } else {
+            // Fallback straight/L-shape path
+            Vector3i start_i(start_point);
+            Vector3i end_i(end_point);
+            std::vector<Vector3i> fallback_path;
+            Vector3i curr = start_i;
+            fallback_path.push_back(curr);
+            while (curr != end_i) {
+                if (curr.x != end_i.x) curr.x += (end_i.x > curr.x) ? 1 : -1;
+                else if (curr.z != end_i.z) curr.z += (end_i.z > curr.z) ? 1 : -1;
+                else if (curr.y != end_i.y) curr.y += (end_i.y > curr.y) ? 1 : -1;
+                fallback_path.push_back(curr);
+            }
+            all_paths.push_back(fallback_path);
+        }
+    }
+    return all_paths;
 }
 
 // ================= CASTLE / RECURSIVE =================
