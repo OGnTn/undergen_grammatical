@@ -13,12 +13,9 @@ void VoxMaterialEntry::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_palette_index"), &VoxMaterialEntry::get_palette_index);
     ClassDB::bind_method(D_METHOD("set_material_id", "id"), &VoxMaterialEntry::set_material_id);
     ClassDB::bind_method(D_METHOD("get_material_id"), &VoxMaterialEntry::get_material_id);
-    ClassDB::bind_method(D_METHOD("set_thickness", "thickness"), &VoxMaterialEntry::set_thickness);
-    ClassDB::bind_method(D_METHOD("get_thickness"), &VoxMaterialEntry::get_thickness);
 
     ADD_PROPERTY(PropertyInfo(Variant::INT, "palette_index", PROPERTY_HINT_RANGE, "0,255,1"), "set_palette_index", "get_palette_index");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "material_id", PROPERTY_HINT_RANGE, "0,255,1"), "set_material_id", "get_material_id");
-    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "thickness", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_thickness", "get_thickness");
 }
 
 void VoxMaterialEntry::set_palette_index(int p_index) {
@@ -37,15 +34,6 @@ void VoxMaterialEntry::set_material_id(int p_id) {
 
 int VoxMaterialEntry::get_material_id() const {
     return material_id;
-}
-
-void VoxMaterialEntry::set_thickness(float p_thickness) {
-    thickness = Math::clamp(p_thickness, 0.0f, 1.0f);
-    emit_changed();
-}
-
-float VoxMaterialEntry::get_thickness() const {
-    return thickness;
 }
 
 } // namespace godot

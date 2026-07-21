@@ -20,7 +20,6 @@ class UnderGenVoxStampNode : public UnderGenNode {
 private:
     Dictionary vox_spawn_map;    // palette_index -> spawn_type String
     Dictionary vox_material_map; // palette_index -> material_id int
-    Dictionary vox_density_map;  // palette_index -> density float
     bool vox_inverse_density = false;
     int connection_palette_index = -1;
     bool exclude_from_smoothing = false;
@@ -37,7 +36,7 @@ private:
                     int zone_id, std::vector<Dictionary> &out_spawns, Array &out_connections);
     void _clear_vox_cache();
 
-    void _rebuild_maps_from_entries(float threshold = 0.5f);
+    void _rebuild_maps_from_entries();
     void _on_entries_changed();
 
 protected:
