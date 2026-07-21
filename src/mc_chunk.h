@@ -56,12 +56,14 @@ private:
     Ref<Material> liquid_material;
     bool generate_liquid_trigger = true;
 
+    Dictionary material_thicknesses;
+
     void _generate_liquid_mesh();
     void _clear_liquid();
 
     Dictionary _march_cubes_multi_mat();
     Dictionary _march_cubes();
-    Vector3 _interpolate_vertex(const Vector3 &p1, const Vector3 &p2, float val1, float val2);
+    Vector3 _interpolate_vertex(const Vector3 &p1, const Vector3 &p2, float val1, float val2, float thickness1 = 1.0f, float thickness2 = 1.0f);
     void _generate_mesh_with_compute();
 
     // --- Private method declarations for collision ---
@@ -109,6 +111,9 @@ public:
 
     void set_materials(const TypedArray<Material> &p_materials);
     TypedArray<Material> get_materials() const;
+
+    void set_material_thicknesses(const Dictionary &p_thicknesses);
+    Dictionary get_material_thicknesses() const;
 
     // Compute Shader
     void set_compute_shader(const Ref<RDShaderFile> &p_shader);

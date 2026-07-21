@@ -382,14 +382,14 @@ void UnderGenDetailStamperNode::_execute(const Dictionary &inputs, Dictionary &o
                             if (vox_spawn_map.has(key_int)) {
                                 grid->set_cell(gp, OPEN);
                                 Dictionary spawn_d;
-                                spawn_d["position"] = Vector3(gp.x, gp.y, gp.z) * v_size;
+                                spawn_d["position"] = Vector3(gp.x, gp.y, gp.z);
                                 spawn_d["palette_index"] = (int)ci;
                                 spawn_d["spawn_type"] = vox_spawn_map[key_int];
                                 spawns_array.append(spawn_d);
                             } else if (vox_spawn_map.has(key_str)) {
                                 grid->set_cell(gp, OPEN);
                                 Dictionary spawn_d;
-                                spawn_d["position"] = Vector3(gp.x, gp.y, gp.z) * v_size;
+                                spawn_d["position"] = Vector3(gp.x, gp.y, gp.z);
                                 spawn_d["palette_index"] = (int)ci;
                                 spawn_d["spawn_type"] = vox_spawn_map[key_str];
                                 spawns_array.append(spawn_d);
@@ -410,6 +410,16 @@ void UnderGenDetailStamperNode::_execute(const Dictionary &inputs, Dictionary &o
     }
 
     context["vox_spawns"] = spawns_array;
+
+    // Output material thicknesses to the generation context
+    Dictionary thicknesses = context.get("material_thicknesses", Dictionary());
+    for (int i = 0; i < vox_material_entries.size(); ++i) {
+        Ref<VoxMaterialEntry> entry = vox_material_entries[i];
+        if (entry.is_valid()) {
+            thicknesses[entry->get_material_id()] = entry->get_thickness();
+        }
+    }
+    context["material_thicknesses"] = thicknesses;
 
     UtilityFunctions::print("UnderGenDetailStamperNode: Stamped details at ", stamp_count, " / ", raw_points.size(), " points using '", vox_path, "'.");
 

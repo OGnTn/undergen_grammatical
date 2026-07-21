@@ -126,6 +126,9 @@ void UnderGenMesherNode::execute_with_parent(const Dictionary &inputs, Dictionar
                 if (!terrain_materials.is_empty()) {
                     chunk->set_materials(terrain_materials);
                 }
+                if (context.has("material_thicknesses")) {
+                    chunk->call("set_material_thicknesses", context["material_thicknesses"]);
+                }
                 if (compute_shader.is_valid()) {
                     chunk->set_compute_shader(compute_shader);
                 }

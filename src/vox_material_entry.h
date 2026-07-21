@@ -11,6 +11,7 @@ class VoxMaterialEntry : public Resource {
 private:
     int palette_index = 0;
     int material_id = 0;
+    float thickness = 1.0f;
 
 protected:
     static void _bind_methods();
@@ -24,6 +25,9 @@ public:
 
     void set_material_id(int p_id);
     int get_material_id() const;
+
+    void set_thickness(float p_thickness);
+    float get_thickness() const;
 };
 
 } // namespace godot

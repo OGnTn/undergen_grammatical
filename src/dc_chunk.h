@@ -50,6 +50,7 @@ private:
     // Dual Contouring Specific
     bool use_qef = true;
     float qef_regularization = 1e-4f;
+    Dictionary material_thicknesses;
 
     void _generate_liquid_mesh();
     void _clear_liquid();
@@ -110,6 +111,9 @@ public:
 
     void set_flip_normals(bool p_flip);
     bool get_flip_normals() const;
+
+    void set_material_thicknesses(const Dictionary &p_thicknesses);
+    Dictionary get_material_thicknesses() const;
 
     // Dual Contouring parameters
     void set_use_qef(bool p_use);

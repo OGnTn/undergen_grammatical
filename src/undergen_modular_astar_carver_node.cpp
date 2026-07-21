@@ -698,6 +698,16 @@ void UnderGenModularAStarCarverNode::_execute(const Dictionary &inputs, Dictiona
     context["vox_spawns"] = context_spawns;
     context["rooms"] = rooms_arr;
 
+    // Output material thicknesses to the generation context
+    Dictionary thicknesses = context.get("material_thicknesses", Dictionary());
+    for (int i = 0; i < vox_material_entries.size(); ++i) {
+        Ref<VoxMaterialEntry> entry = vox_material_entries[i];
+        if (entry.is_valid()) {
+            thicknesses[entry->get_material_id()] = entry->get_thickness();
+        }
+    }
+    context["material_thicknesses"] = thicknesses;
+
     outputs[0] = context;
 }
 

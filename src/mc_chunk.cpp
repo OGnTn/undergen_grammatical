@@ -110,6 +110,10 @@ void MCChunk::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_flip_normals", "enable"), &MCChunk::set_flip_normals);
     ClassDB::bind_method(D_METHOD("get_flip_normals"), &MCChunk::get_flip_normals);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_normals"), "set_flip_normals", "get_flip_normals");
+
+    ClassDB::bind_method(D_METHOD("set_material_thicknesses", "thicknesses"), &MCChunk::set_material_thicknesses);
+    ClassDB::bind_method(D_METHOD("get_material_thicknesses"), &MCChunk::get_material_thicknesses);
+    ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "material_thicknesses"), "set_material_thicknesses", "get_material_thicknesses");
 }
 
 void MCChunk::generate_mesh_from_density_grid() {
@@ -294,9 +298,27 @@ void MCChunk::generate_mesh_from_density_grid() {
                             int c_a = McTables::CORNER_INDEX_A_FROM_EDGE[edge_index];
                             int c_b = McTables::CORNER_INDEX_B_FROM_EDGE[edge_index];
                             
+                            Vector3i world_corner_a = world_pos_base + corner_offsets[c_a];
+                            Vector3i world_corner_b = world_pos_base + corner_offsets[c_b];
+                            int mat_a = sample_material(world_corner_a.x, world_corner_a.y, world_corner_a.z);
+                            int mat_b = sample_material(world_corner_b.x, world_corner_b.y, world_corner_b.z);
+                            
+                            float thickness_a = 1.0f;
+                            float thickness_b = 1.0f;
+                            
+                            Variant key_a = mat_a;
+                            if (material_thicknesses.has(key_a)) {
+                                thickness_a = (float)material_thicknesses[key_a];
+                            }
+                            Variant key_b = mat_b;
+                            if (material_thicknesses.has(key_b)) {
+                                thickness_b = (float)material_thicknesses[key_b];
+                            }
+
                             Vector3 vert_pos = _interpolate_vertex(
                                 corner_locs[c_a], corner_locs[c_b],
-                                corner_values[c_a], corner_values[c_b]
+                                corner_values[c_a], corner_values[c_b],
+                                thickness_a, thickness_b
                             );
 
                             int new_idx = master_vertices.size();
@@ -599,7 +621,7 @@ Dictionary MCChunk::_march_cubes() {
 }
 
 
-Vector3 MCChunk::_interpolate_vertex(const Vector3 &p1, const Vector3 &p2, float val1, float val2) {
+Vector3 MCChunk::_interpolate_vertex(const Vector3 &p1, const Vector3 &p2, float val1, float val2, float thickness1, float thickness2) {
      if (!density_grid.is_valid()) {
         // Fallback if density grid is missing
         return (p1 + p2) * 0.5f;
@@ -625,6 +647,17 @@ Vector3 MCChunk::_interpolate_vertex(const Vector3 &p1, const Vector3 &p2, float
 
     // Clamp t to avoid extrapolation issues if surface level is outside the range [val1, val2]
     t = Math::clamp(t, 0.0f, 1.0f);
+
+    // Apply thickness scaling
+    if (val1 > surface && val2 <= surface) {
+        // p1 is solid, p2 is empty. The surface boundary is at distance t from p1.
+        // Scale this distance by thickness1.
+        t = t * thickness1;
+    } else if (val2 > surface && val1 <= surface) {
+        // p2 is solid, p1 is empty. The surface boundary is at distance (1 - t) from p2.
+        // Scale this distance by thickness2.
+        t = 1.0f - (1.0f - t) * thickness2;
+    }
 
     // Use Godot's lerp function (Vector3 has lerp)
     return p1.lerp(p2, t);
@@ -1223,6 +1256,9 @@ bool MCChunk::get_smooth_normals() const { return smooth_normals; }
 
 void MCChunk::set_flip_normals(bool p_flip) { flip_normals = p_flip; }
 bool MCChunk::get_flip_normals() const { return flip_normals; }
+
+void MCChunk::set_material_thicknesses(const Dictionary &p_thicknesses) { material_thicknesses = p_thicknesses; }
+Dictionary MCChunk::get_material_thicknesses() const { return material_thicknesses; }
 
 void MCChunk::_clear_liquid() {
     for (int i = get_child_count() - 1; i >= 0; --i) {

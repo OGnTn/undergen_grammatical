@@ -86,6 +86,9 @@ void UnderGenDualContourMesherNode::execute_with_parent(const Dictionary &inputs
                 if (!terrain_mats.is_empty()) {
                     chunk->set_materials(terrain_mats);
                 }
+                if (context.has("material_thicknesses")) {
+                    chunk->call("set_material_thicknesses", context["material_thicknesses"]);
+                }
                 if (comp_shader.is_valid()) {
                     chunk->set_compute_shader(comp_shader);
                 }

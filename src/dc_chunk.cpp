@@ -111,6 +111,10 @@ void DCChunk::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_flip_normals"), &DCChunk::get_flip_normals);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_normals"), "set_flip_normals", "get_flip_normals");
 
+    ClassDB::bind_method(D_METHOD("set_material_thicknesses", "thicknesses"), &DCChunk::set_material_thicknesses);
+    ClassDB::bind_method(D_METHOD("get_material_thicknesses"), &DCChunk::get_material_thicknesses);
+    ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "material_thicknesses"), "set_material_thicknesses", "get_material_thicknesses");
+
     // Dual Contouring Specific
     ClassDB::bind_method(D_METHOD("set_use_qef", "use"), &DCChunk::set_use_qef);
     ClassDB::bind_method(D_METHOD("get_use_qef"), &DCChunk::get_use_qef);
@@ -298,6 +302,27 @@ void DCChunk::generate_mesh_from_density_grid() {
                         float t = 0.5f;
                         if (Math::abs(val1 - val2) > 1e-6f) {
                             t = (threshold - val1) / (val2 - val1);
+                        }
+                        t = Math::clamp(t, 0.0f, 1.0f);
+
+                        // Apply thickness scaling
+                        int mat1 = sample_material(cp1.x, cp1.y, cp1.z);
+                        int mat2 = sample_material(cp2.x, cp2.y, cp2.z);
+                        float thickness1 = 1.0f;
+                        float thickness2 = 1.0f;
+                        Variant key1 = mat1;
+                        if (material_thicknesses.has(key1)) {
+                            thickness1 = (float)material_thicknesses[key1];
+                        }
+                        Variant key2 = mat2;
+                        if (material_thicknesses.has(key2)) {
+                            thickness2 = (float)material_thicknesses[key2];
+                        }
+
+                        if (val1 > threshold && val2 <= threshold) {
+                            t = t * thickness1;
+                        } else if (val2 > threshold && val1 <= threshold) {
+                            t = 1.0f - (1.0f - t) * thickness2;
                         }
 
                         Vector3 p_grid = Vector3(cp1) + t * Vector3(cp2 - cp1);
@@ -950,6 +975,9 @@ bool DCChunk::get_smooth_normals() const { return smooth_normals; }
 
 void DCChunk::set_flip_normals(bool p_flip) { flip_normals = p_flip; }
 bool DCChunk::get_flip_normals() const { return flip_normals; }
+
+void DCChunk::set_material_thicknesses(const Dictionary &p_thicknesses) { material_thicknesses = p_thicknesses; }
+Dictionary DCChunk::get_material_thicknesses() const { return material_thicknesses; }
 
 void DCChunk::set_use_qef(bool p_use) { use_qef = p_use; }
 bool DCChunk::get_use_qef() const { return use_qef; }

@@ -466,6 +466,16 @@ void UnderGenVoxStampNode::_execute(const Dictionary &inputs, Dictionary &output
     }
     context["vox_spawns"] = spawns_array;
 
+    // Output material thicknesses to the generation context
+    Dictionary thicknesses = context.get("material_thicknesses", Dictionary());
+    for (int i = 0; i < vox_material_entries.size(); ++i) {
+        Ref<VoxMaterialEntry> entry = vox_material_entries[i];
+        if (entry.is_valid()) {
+            thicknesses[entry->get_material_id()] = entry->get_thickness();
+        }
+    }
+    context["material_thicknesses"] = thicknesses;
+
     UtilityFunctions::print("UnderGenVoxStampNode: Finished execution, generated ", spawns_array.size(), " spawns total.");
 
     outputs[0] = context;

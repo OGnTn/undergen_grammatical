@@ -8,6 +8,7 @@
 #include "undergen_point_set.h"
 #include "undergen_vox_stamp_node.h"
 #include "undergen_detail_stamper_node.h"
+#include "undergen_modular_astar_carver_node.h"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/classes/label3d.hpp>
 #include <godot_cpp/classes/multiplayer_spawner.hpp>
@@ -347,6 +348,13 @@ void UnderGenWorld3D::_on_layout_completed(const Dictionary &outputs) {
 void UnderGenWorld3D::_on_meshing_completed(const Dictionary &outputs) {
     emit_signal("meshing_completed");
 
+    Ref<DensityGrid> grid;
+    Dictionary material_thicknesses;
+    if (!_last_context.is_empty()) {
+        grid = _last_context.get("grid", Ref<DensityGrid>());
+        material_thicknesses = _last_context.get("material_thicknesses", Dictionary());
+    }
+
     // Spawn debug zone labels if enabled
     if (debug_show_zone_labels) {
         _spawn_debug_zone_labels(_last_context);
@@ -378,6 +386,78 @@ void UnderGenWorld3D::_on_meshing_completed(const Dictionary &outputs) {
                     vox_spawns.append_array(spawns);
                 }
             }
+            UnderGenModularAStarCarverNode* carver = Object::cast_to<UnderGenModularAStarCarverNode>(node.ptr());
+            if (carver) {
+                Dictionary node_outputs = pipeline->get_node_outputs(carver->get_name());
+                Dictionary context = node_outputs.get(0, Dictionary());
+                if (context.has("vox_spawns")) {
+                    Array spawns = context["vox_spawns"];
+                    vox_spawns.append_array(spawns);
+                }
+            }
+        }
+    }
+
+    // Adjust spawn positions to snap onto surfaces
+    if (grid.is_valid()) {
+        float surface = grid->get_surface_threshold();
+        
+        Vector3i directions[] = {
+            Vector3i(0, -1, 0), // Down (floor)
+            Vector3i(-1, 0, 0), // Left (wall)
+            Vector3i(1, 0, 0),  // Right (wall)
+            Vector3i(0, 0, -1), // Forward (wall)
+            Vector3i(0, 0, 1),  // Backward (wall)
+            Vector3i(0, 1, 0)   // Up (ceiling)
+        };
+
+        for (int i = 0; i < vox_spawns.size(); ++i) {
+            Dictionary spawn_d = vox_spawns[i];
+            Vector3 spawn_pos_grid = spawn_d.get("position", Vector3());
+            Vector3i pos_spawn = Vector3i(Math::round(spawn_pos_grid.x), Math::round(spawn_pos_grid.y), Math::round(spawn_pos_grid.z));
+            
+            bool adjusted = false;
+            for (const auto& direction : directions) {
+                Vector3i pos_solid = pos_spawn + direction;
+                if (grid->is_valid_position(pos_solid)) {
+                    float val_solid = grid->get_cell(pos_solid);
+                    if (val_solid > surface) {
+                        float val_empty = grid->get_cell(pos_spawn);
+                        float denominator = val_empty - val_solid;
+                        float t = 0.5f;
+                        if (Math::abs(denominator) > CMP_EPSILON) {
+                            t = (surface - val_solid) / denominator;
+                            t = Math::clamp(t, 0.0f, 1.0f);
+                        }
+                        
+                        int mat = grid->get_material_id(pos_solid);
+                        float thickness = 1.0f;
+                        Variant key = mat;
+                        if (material_thicknesses.has(key)) {
+                            thickness = (float)material_thicknesses[key];
+                        }
+                        
+                        float t_new = t * thickness;
+                        
+                        Vector3 pos_solid_f = Vector3(pos_solid);
+                        Vector3 direction_f = Vector3(direction);
+                        Vector3 adjusted_pos_grid = pos_solid_f - direction_f * t_new;
+                        
+                        spawn_d["position"] = adjusted_pos_grid * voxel_size;
+                        adjusted = true;
+                        break;
+                    }
+                }
+            }
+            if (!adjusted) {
+                spawn_d["position"] = spawn_pos_grid * voxel_size;
+            }
+        }
+    } else {
+        for (int i = 0; i < vox_spawns.size(); ++i) {
+            Dictionary spawn_d = vox_spawns[i];
+            Vector3 spawn_pos_grid = spawn_d.get("position", Vector3());
+            spawn_d["position"] = spawn_pos_grid * voxel_size;
         }
     }
     
