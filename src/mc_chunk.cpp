@@ -149,7 +149,16 @@ void MCChunk::generate_mesh_from_density_grid() {
 
     auto sample_density = [&](int wx, int wy, int wz) -> float {
         if (wx < 0 || wx >= grid_dim_x || wy < 0 || wy >= grid_dim_y || wz < 0 || wz >= grid_dim_z) {
-            return 1.0f;
+            if (wy >= grid_dim_y) {
+                return -1.0f; // Sky above the grid is empty/air
+            }
+            if (wy < 0) {
+                return 1.0f; // Bedrock below the grid is solid
+            }
+            int clamped_x = wx < 0 ? 0 : (wx >= grid_dim_x ? grid_dim_x - 1 : wx);
+            int clamped_z = wz < 0 ? 0 : (wz >= grid_dim_z ? grid_dim_z - 1 : wz);
+            int idx = clamped_x + grid_dim_x * (wy + grid_dim_y * clamped_z);
+            return density_data[idx];
         }
         int idx = wx + grid_dim_x * (wy + grid_dim_y * wz);
         return density_data[idx];

@@ -188,7 +188,7 @@ TypedArray<VoxMaterialEntry> UnderGenVoxStampNode::get_vox_material_entries() co
     return vox_material_entries;
 }
 
-void UnderGenVoxStampNode::_rebuild_maps_from_entries() {
+void UnderGenVoxStampNode::_rebuild_maps_from_entries(float threshold) {
     vox_spawn_map.clear();
     for (int i = 0; i < vox_spawn_entries.size(); ++i) {
         Ref<VoxSpawnEntry> entry = vox_spawn_entries[i];
@@ -198,10 +198,22 @@ void UnderGenVoxStampNode::_rebuild_maps_from_entries() {
     }
     
     vox_material_map.clear();
+    vox_density_map.clear();
     for (int i = 0; i < vox_material_entries.size(); ++i) {
         Ref<VoxMaterialEntry> entry = vox_material_entries[i];
         if (entry.is_valid()) {
-            vox_material_map[entry->get_palette_index()] = entry->get_material_id();
+            int palette_idx = entry->get_palette_index();
+            vox_material_map[palette_idx] = entry->get_material_id();
+            
+            float thickness = Math::clamp(entry->get_thickness(), 0.0f, 1.0f);
+            float density = 1.0f; // Default SOLID value
+            if (thickness > 0.0f) {
+                float clamped_thickness = Math::max(0.01f, thickness);
+                density = (2.0f * threshold) / (2.0f - clamped_thickness);
+            } else {
+                density = 0.0f;
+            }
+            vox_density_map[palette_idx] = density;
         }
     }
 }
@@ -374,7 +386,13 @@ void UnderGenVoxStampNode::_stamp_vox(DensityGrid* grid, const ResolvedRoom &roo
                             if (vox_inverse_density) {
                                 grid->set_cell(gp, OPEN);
                             } else {
-                                grid->set_cell(gp, SOLID);
+                                float density = SOLID;
+                                if (vox_density_map.has(key_int)) {
+                                    density = (float)vox_density_map[key_int];
+                                } else if (vox_density_map.has(key_str)) {
+                                    density = (float)vox_density_map[key_str];
+                                }
+                                grid->set_cell(gp, density);
                                 if (vox_material_map.has(key_int)) {
                                     grid->set_material_id(gp, (int)vox_material_map[key_int]);
                                 } else if (vox_material_map.has(key_str)) {
@@ -423,7 +441,7 @@ void UnderGenVoxStampNode::_execute(const Dictionary &inputs, Dictionary &output
             }
         }
     }
-    _rebuild_maps_from_entries();
+    _rebuild_maps_from_entries(grid->get_surface_threshold());
 
     _clear_vox_cache();
     std::vector<Dictionary> vox_spawns;

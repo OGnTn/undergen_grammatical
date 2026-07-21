@@ -14,6 +14,7 @@
 
 // Concrete pipeline nodes
 #include "undergen_bsp_placer_node.h"
+#include "undergen_outdoor_placer_node.h"
 #include "undergen_astar_carver_node.h"
 #include "undergen_modular_astar_carver_node.h"
 #include "undergen_bezier_carver_node.h"
@@ -66,6 +67,7 @@ void initialize_density_grid_module(ModuleInitializationLevel p_level) {
 
     // --- Concrete Pipeline Nodes ---
     ClassDB::register_class<UnderGenBSPPlacerNode>();
+    ClassDB::register_class<UnderGenOutdoorPlacerNode>();
     ClassDB::register_class<UnderGenAStarCarverNode>();
     ClassDB::register_class<UnderGenModularAStarCarverNode>();
     ClassDB::register_class<UnderGenBezierCarverNode>();

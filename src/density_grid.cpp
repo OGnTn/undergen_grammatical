@@ -128,17 +128,25 @@ bool DensityGrid::set_cell(const Vector3i &pos, float value) {
 
 
 float DensityGrid::get_cell(const Vector3i &pos, float default_value) const {
-    int index = get_index(pos);
-    if (index != -1) {
-         // Ensure index is within the valid range (double check)
-        if (index >= 0 && index < world_density_grid.size()) {
-            return world_density_grid[index];
-        } else {
-           // UtilityFunctions::printerr("DensityGrid.get_cell: Index ", index, " out of bounds [0, ", world_density_grid.size(), ") despite valid position ", pos);
-            return default_value; // Should not happen if get_index is correct
-        }
+    if (grid_size_x <= 0 || grid_size_y <= 0 || grid_size_z <= 0) {
+        return default_value;
     }
-    // Return default value if out of bounds or grid not initialized
+
+    if (pos.y >= grid_size_y) {
+        return -1.0f; // Sky above the grid is empty/air
+    }
+    if (pos.y < 0) {
+        return 1.0f; // Bedrock below the grid is solid
+    }
+
+    int clamped_x = pos.x < 0 ? 0 : (pos.x >= grid_size_x ? grid_size_x - 1 : pos.x);
+    int clamped_z = pos.z < 0 ? 0 : (pos.z >= grid_size_z ? grid_size_z - 1 : pos.z);
+
+    Vector3i clamped_pos(clamped_x, pos.y, clamped_z);
+    int index = get_index(clamped_pos);
+    if (index >= 0 && index < world_density_grid.size()) {
+        return world_density_grid[index];
+    }
     return default_value;
 }
 

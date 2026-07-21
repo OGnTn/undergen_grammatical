@@ -14,10 +14,17 @@ void UnderGenSmoothNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_smoothing_strength", "strength"), &UnderGenSmoothNode::set_smoothing_strength);
     ClassDB::bind_method(D_METHOD("get_smoothing_strength"), &UnderGenSmoothNode::get_smoothing_strength);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "smoothing_strength"), "set_smoothing_strength", "get_smoothing_strength");
+
+    ClassDB::bind_method(D_METHOD("set_enforce_solid_boundaries", "enforce"), &UnderGenSmoothNode::set_enforce_solid_boundaries);
+    ClassDB::bind_method(D_METHOD("get_enforce_solid_boundaries"), &UnderGenSmoothNode::get_enforce_solid_boundaries);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "enforce_solid_boundaries"), "set_enforce_solid_boundaries", "get_enforce_solid_boundaries");
 }
 
 void UnderGenSmoothNode::set_smoothing_strength(int p_strength) { smoothing_strength = p_strength; }
 int UnderGenSmoothNode::get_smoothing_strength() const { return smoothing_strength; }
+
+void UnderGenSmoothNode::set_enforce_solid_boundaries(bool p_enforce) { enforce_solid_boundaries = p_enforce; }
+bool UnderGenSmoothNode::get_enforce_solid_boundaries() const { return enforce_solid_boundaries; }
 
 void UnderGenSmoothNode::_execute(const Dictionary &inputs, Dictionary &outputs) {
     Dictionary context = inputs.get(0, Dictionary());
@@ -127,22 +134,24 @@ void UnderGenSmoothNode::_execute(const Dictionary &inputs, Dictionary &outputs)
     });
 
     // Enforce solid boundary casing to prevent holes in the terrain after smoothing
-    for (int z = 0; z < gsz; ++z) {
+    if (enforce_solid_boundaries) {
+        for (int z = 0; z < gsz; ++z) {
+            for (int y = 0; y < gsy; ++y) {
+                temp_data[(z * gsy + y) * gsx + 0] = WORLD_SOLID_VALUE;
+                temp_data[(z * gsy + y) * gsx + (gsx - 1)] = WORLD_SOLID_VALUE;
+            }
+        }
+        for (int z = 0; z < gsz; ++z) {
+            for (int x = 0; x < gsx; ++x) {
+                temp_data[(z * gsy + 0) * gsx + x] = WORLD_SOLID_VALUE;
+                temp_data[(z * gsy + (gsy - 1)) * gsx + x] = WORLD_SOLID_VALUE;
+            }
+        }
         for (int y = 0; y < gsy; ++y) {
-            temp_data[(z * gsy + y) * gsx + 0] = WORLD_SOLID_VALUE;
-            temp_data[(z * gsy + y) * gsx + (gsx - 1)] = WORLD_SOLID_VALUE;
-        }
-    }
-    for (int z = 0; z < gsz; ++z) {
-        for (int x = 0; x < gsx; ++x) {
-            temp_data[(z * gsy + 0) * gsx + x] = WORLD_SOLID_VALUE;
-            temp_data[(z * gsy + (gsy - 1)) * gsx + x] = WORLD_SOLID_VALUE;
-        }
-    }
-    for (int y = 0; y < gsy; ++y) {
-        for (int x = 0; x < gsx; ++x) {
-            temp_data[(0 * gsy + y) * gsx + x] = WORLD_SOLID_VALUE;
-            temp_data[((gsz - 1) * gsy + y) * gsx + x] = WORLD_SOLID_VALUE;
+            for (int x = 0; x < gsx; ++x) {
+                temp_data[(0 * gsy + y) * gsx + x] = WORLD_SOLID_VALUE;
+                temp_data[((gsz - 1) * gsy + y) * gsx + x] = WORLD_SOLID_VALUE;
+            }
         }
     }
 
