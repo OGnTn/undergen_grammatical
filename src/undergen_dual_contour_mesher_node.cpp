@@ -3,6 +3,7 @@
 #include "dc_chunk.h"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/math.hpp>
+#include <godot_cpp/classes/geometry_instance3d.hpp>
 
 namespace godot {
 
@@ -17,6 +18,10 @@ void UnderGenDualContourMesherNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_qef_regularization", "regularization"), &UnderGenDualContourMesherNode::set_qef_regularization);
     ClassDB::bind_method(D_METHOD("get_qef_regularization"), &UnderGenDualContourMesherNode::get_qef_regularization);
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "qef_regularization"), "set_qef_regularization", "get_qef_regularization");
+
+    ClassDB::bind_method(D_METHOD("set_stepped_transitions", "stepped"), &UnderGenDualContourMesherNode::set_stepped_transitions);
+    ClassDB::bind_method(D_METHOD("get_stepped_transitions"), &UnderGenDualContourMesherNode::get_stepped_transitions);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "stepped_transitions"), "set_stepped_transitions", "get_stepped_transitions");
 }
 
 void UnderGenDualContourMesherNode::set_use_qef(bool p_use) { use_qef = p_use; }
@@ -24,6 +29,9 @@ bool UnderGenDualContourMesherNode::get_use_qef() const { return use_qef; }
 
 void UnderGenDualContourMesherNode::set_qef_regularization(float p_reg) { qef_regularization = p_reg; }
 float UnderGenDualContourMesherNode::get_qef_regularization() const { return qef_regularization; }
+
+void UnderGenDualContourMesherNode::set_stepped_transitions(bool p_stepped) { stepped_transitions = p_stepped; }
+bool UnderGenDualContourMesherNode::get_stepped_transitions() const { return stepped_transitions; }
 
 void UnderGenDualContourMesherNode::execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node3D* parent_node) {
     if (!parent_node) {
@@ -52,6 +60,7 @@ void UnderGenDualContourMesherNode::execute_with_parent(const Dictionary &inputs
     Ref<RDShaderFile> comp_shader = get_compute_shader();
     bool smooth_norms = get_smooth_normals();
     bool flip_norms = get_flip_normals();
+    bool cast_shad = get_cast_shadows();
 
     int count_x = Math::max(1, (int)Math::ceil((float)(dims.x - 1) / chunk_sz));
     int count_y = Math::max(1, (int)Math::ceil((float)(dims.y - 1) / chunk_sz));
@@ -72,8 +81,10 @@ void UnderGenDualContourMesherNode::execute_with_parent(const Dictionary &inputs
                 chunk->set_generate_occluder(gen_occ);
                 chunk->set_smooth_normals(smooth_norms);
                 chunk->set_flip_normals(flip_norms);
+                chunk->set_cast_shadows_setting(cast_shad ? GeometryInstance3D::SHADOW_CASTING_SETTING_ON : GeometryInstance3D::SHADOW_CASTING_SETTING_OFF);
                 chunk->set_use_qef(use_qef);
                 chunk->set_qef_regularization(qef_regularization);
+                chunk->call("set_stepped_transitions", stepped_transitions);
 
                 if (liquid_mat.is_valid()) {
                     chunk->call("set_liquid_material", liquid_mat);
@@ -88,6 +99,9 @@ void UnderGenDualContourMesherNode::execute_with_parent(const Dictionary &inputs
                 }
                 if (context.has("material_thicknesses")) {
                     chunk->call("set_material_thicknesses", context["material_thicknesses"]);
+                }
+                if (context.has("material_stepped")) {
+                    chunk->call("set_material_stepped", context["material_stepped"]);
                 }
                 if (comp_shader.is_valid()) {
                     chunk->set_compute_shader(comp_shader);

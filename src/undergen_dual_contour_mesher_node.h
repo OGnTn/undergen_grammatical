@@ -12,6 +12,7 @@ class UnderGenDualContourMesherNode : public UnderGenMesherNode {
 private:
     bool use_qef = true;
     float qef_regularization = 1e-4f;
+    bool stepped_transitions = true;
 
 protected:
     static void _bind_methods();
@@ -25,6 +26,9 @@ public:
 
     void set_qef_regularization(float p_reg);
     float get_qef_regularization() const;
+
+    void set_stepped_transitions(bool p_stepped);
+    bool get_stepped_transitions() const;
 
     virtual void execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node3D* parent_node) override;
 };

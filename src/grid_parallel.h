@@ -5,11 +5,16 @@
 #include <cstdint>
 #include <thread>
 #include <vector>
+#include <functional>
 
 namespace godot {
 
 inline int grid_parallel_worker_count(int z_count, int64_t total_cells) {
-    if (z_count <= 0 || total_cells < 262144) {
+    if (z_count <= 0) {
+        return 1;
+    }
+    // Allow parallel execution for grids with > 32k cells
+    if (total_cells < 32768) {
         return 1;
     }
 
@@ -26,8 +31,7 @@ void parallel_for_z(int z_count, int64_t total_cells, Func func) {
 
     int worker_count = grid_parallel_worker_count(z_count, total_cells);
 
-    // Thread startup costs dominate small grids; keep those single-threaded.
-    if (worker_count == 1 || total_cells < 262144) {
+    if (worker_count == 1) {
         func(0, 0, z_count);
         return;
     }
@@ -50,7 +54,46 @@ void parallel_for_z(int z_count, int64_t total_cells, Func func) {
     }
 
     for (std::thread &worker : workers) {
-        worker.join();
+        if (worker.joinable()) {
+            worker.join();
+        }
+    }
+}
+
+template <typename ChunkType, typename Func>
+void parallel_for_chunks(const std::vector<ChunkType*> &chunks, Func func) {
+    size_t count = chunks.size();
+    if (count == 0) return;
+
+    unsigned int hw_threads = std::thread::hardware_concurrency();
+    int worker_count = std::max(1, std::min((int)hw_threads, (int)count));
+
+    if (worker_count == 1) {
+        func(0, 0, (int)count);
+        return;
+    }
+
+    std::vector<std::thread> workers;
+    workers.reserve(worker_count);
+
+    int begin = 0;
+    for (int worker = 0; worker < worker_count; ++worker) {
+        int remaining = (int)count - begin;
+        int remaining_workers = worker_count - worker;
+        int chunk_slice = (remaining + remaining_workers - 1) / remaining_workers;
+        int end = begin + chunk_slice;
+
+        workers.emplace_back([=, &func]() {
+            func(worker, begin, end);
+        });
+
+        begin = end;
+    }
+
+    for (std::thread &worker : workers) {
+        if (worker.joinable()) {
+            worker.join();
+        }
     }
 }
 

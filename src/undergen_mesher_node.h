@@ -26,6 +26,7 @@ private:
     Ref<RDShaderFile> compute_shader;
     bool smooth_normals = false;
     bool flip_normals = false;
+    bool cast_shadows = true;
 
 protected:
     static void _bind_methods();
@@ -56,6 +57,8 @@ public:
     bool get_smooth_normals() const;
     void set_flip_normals(bool p_enabled);
     bool get_flip_normals() const;
+    void set_cast_shadows(bool p_enabled);
+    bool get_cast_shadows() const;
 
     // Called with the world node as context owner
     virtual void execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node3D* parent_node);

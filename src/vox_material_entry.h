@@ -12,6 +12,7 @@ private:
     int palette_index = 0;
     int material_id = 0;
     float thickness = 1.0f;
+    bool stepped = true;
 
 protected:
     static void _bind_methods();
@@ -28,6 +29,9 @@ public:
 
     void set_thickness(float p_thickness);
     float get_thickness() const;
+
+    void set_stepped(bool p_stepped);
+    bool is_stepped() const;
 };
 
 } // namespace godot

@@ -50,6 +50,8 @@ void UnderGenWorld3D::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("set_spawn_on_generation_complete", "enabled"), &UnderGenWorld3D::set_spawn_on_generation_complete);
     ClassDB::bind_method(D_METHOD("get_spawn_on_generation_complete"), &UnderGenWorld3D::get_spawn_on_generation_complete);
+    ClassDB::bind_method(D_METHOD("set_cast_shadows", "cast_shadows"), &UnderGenWorld3D::set_cast_shadows);
+    ClassDB::bind_method(D_METHOD("get_cast_shadows"), &UnderGenWorld3D::get_cast_shadows);
     ClassDB::bind_method(D_METHOD("set_parent_node", "parent_node"), &UnderGenWorld3D::set_parent_node);
     ClassDB::bind_method(D_METHOD("get_parent_node"), &UnderGenWorld3D::get_parent_node);
     ClassDB::bind_method(D_METHOD("set_multiplayer_spawner", "path"), &UnderGenWorld3D::set_multiplayer_spawner);
@@ -93,6 +95,7 @@ void UnderGenWorld3D::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "surface_threshold"), "set_surface_threshold", "get_surface_threshold");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "generate_on_ready"), "set_generate_on_ready", "get_generate_on_ready");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "spawn_on_generation_complete"), "set_spawn_on_generation_complete", "get_spawn_on_generation_complete");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "cast_shadows"), "set_cast_shadows", "get_cast_shadows");
     ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "parent_node"), "set_parent_node", "get_parent_node");
     ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "multiplayer_spawner"), "set_multiplayer_spawner", "get_multiplayer_spawner");
 
@@ -103,6 +106,9 @@ void UnderGenWorld3D::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug_show_zone_labels"), "set_debug_show_zone_labels", "get_debug_show_zone_labels");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "debug_zone_label_font_size", PROPERTY_HINT_RANGE, "8,128,1"), "set_debug_zone_label_font_size", "get_debug_zone_label_font_size");
     ADD_PROPERTY(PropertyInfo(Variant::COLOR, "debug_zone_label_color"), "set_debug_zone_label_color", "get_debug_zone_label_color");
+
+    ClassDB::bind_method(D_METHOD("get_density_grid"), &UnderGenWorld3D::get_density_grid);
+    ClassDB::bind_method(D_METHOD("get_last_context"), &UnderGenWorld3D::get_last_context);
 
     // Signals
     ADD_SIGNAL(MethodInfo("generation_started"));
@@ -166,6 +172,14 @@ void UnderGenWorld3D::set_spawn_on_generation_complete(bool p_enabled) {
 
 bool UnderGenWorld3D::get_spawn_on_generation_complete() const {
     return spawn_on_generation_complete;
+}
+
+void UnderGenWorld3D::set_cast_shadows(bool p_cast_shadows) {
+    cast_shadows = p_cast_shadows;
+}
+
+bool UnderGenWorld3D::get_cast_shadows() const {
+    return cast_shadows;
 }
 
 void UnderGenWorld3D::set_parent_node(const NodePath &p_path) {
@@ -293,6 +307,7 @@ void UnderGenWorld3D::_run_generation_async(int64_t p_seed) {
             if (node.is_null()) continue;
             node->set("surface_threshold", surface_threshold);
             node->set("voxel_size", voxel_size);
+            node->set("cast_shadows", cast_shadows);
         }
     }
 
@@ -325,6 +340,7 @@ void UnderGenWorld3D::_on_layout_completed(const Dictionary &outputs) {
 
             UnderGenMesherNode* mesher = Object::cast_to<UnderGenMesherNode>(node.ptr());
             if (mesher) {
+                mesher->set_cast_shadows(cast_shadows);
                 Dictionary inputs = pipeline->get_node_inputs(mesher->get_name());
                 
                 // Capture context and the mesher's own voxel_size for debug labels.
@@ -732,6 +748,13 @@ Ref<UnderGenPointSet> UnderGenWorld3D::get_point_set_from_node(const String &nod
 
 Array UnderGenWorld3D::get_vox_spawns() const {
     return vox_spawns;
+}
+
+Ref<DensityGrid> UnderGenWorld3D::get_density_grid() const {
+    if (_last_context.has("grid")) {
+        return _last_context["grid"];
+    }
+    return Ref<DensityGrid>();
 }
 
 } // namespace godot

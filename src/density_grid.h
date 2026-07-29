@@ -9,21 +9,40 @@
 #include <godot_cpp/variant/vector3i.hpp>
 #include <vector>
 #include <string>
+#include <unordered_map>
+#include "voxel_chunk.h"
 
 namespace godot {
+
+struct Vector3iHash {
+    std::size_t operator()(const Vector3i &v) const {
+        std::size_t h1 = std::hash<int>()(v.x);
+        std::size_t h2 = std::hash<int>()(v.y);
+        std::size_t h3 = std::hash<int>()(v.z);
+        return h1 ^ (h2 << 1) ^ (h3 << 2);
+    }
+};
 
 class DensityGrid : public Resource {
     GDCLASS(DensityGrid, Resource);
 
 protected:
-    PackedFloat32Array world_density_grid;
-    PackedByteArray world_material_grid;
-    PackedInt32Array world_zone_grid;
+    // Dynamic / Flattened cached PackedArrays for backward compatibility
+    mutable PackedFloat32Array world_density_grid;
+    mutable PackedByteArray world_material_grid;
+    mutable PackedInt32Array world_zone_grid;
+    mutable bool flat_cache_dirty = true;
+
+    // Sparse Voxel Chunk Storage
+    std::unordered_map<Vector3i, VoxelChunk*, Vector3iHash> chunks;
+
     std::vector<String> zone_id_map;
     int grid_size_x = 0;
     int grid_size_y = 0;
     int grid_size_z = 0;
-    float surface_threshold = 0.0;
+    float surface_threshold = 0.0f;
+    float default_initial_value = 1.0f;
+    int default_material_idx = 0;
 
 protected:
     static void _bind_methods();
@@ -33,18 +52,29 @@ public:
     ~DensityGrid();
 
     // Initialization & Accessors
-    void initialize_grid(int size_x, int size_y, int size_z, float default_value = 1.0, int default_material_index = 0);
-    bool is_valid_position(const Vector3i &pos) const; // Made const
-    int get_index(const Vector3i &pos) const;          // Made const
+    void initialize_grid(int size_x, int size_y, int size_z, float default_value = 1.0f, int default_material_index = 0);
+    bool is_valid_position(const Vector3i &pos) const;
+    int get_index(const Vector3i &pos) const;
     bool set_cell(const Vector3i &pos, float value);
-    float get_cell(const Vector3i &pos, float default_value = 1.0) const; // Made const
-    Vector3i get_grid_dimensions() const; // Made const
+    float get_cell(const Vector3i &pos, float default_value = 1.0f) const;
+    Vector3i get_grid_dimensions() const;
+
+    // Sparse Chunk API
+    static Vector3i world_to_chunk_coord(const Vector3i &pos);
+    static Vector3i world_to_local_coord(const Vector3i &pos);
+
+    VoxelChunk* get_chunk(const Vector3i &chunk_coord, bool create_if_missing = false);
+    VoxelChunk* get_chunk_for_voxel(const Vector3i &pos, bool create_if_missing = false);
+    const std::unordered_map<Vector3i, VoxelChunk*, Vector3iHash>& get_all_chunks() const { return chunks; }
+    void clear_chunks();
+    void mark_flat_cache_dirty() const { flat_cache_dirty = true; }
 
     // Properties exposed to Godot
     void set_world_density_grid(const PackedFloat32Array &p_grid);
     PackedFloat32Array get_world_density_grid() const;
 
-    // C++ hot-path accessors. These are intentionally not bound to Godot.
+    // C++ hot-path accessors & backward compatibility getters
+    void sync_flat_cache_if_dirty() const;
     PackedFloat32Array &get_density_data_rw();
     const PackedFloat32Array &get_density_data() const;
     PackedByteArray &get_material_data_rw();
@@ -68,8 +98,7 @@ public:
 
     void set_material_id(const Vector3i &pos, int material_index);
     int get_material_id(const Vector3i &pos) const;
-    
-    // New Property Accessors
+
     void set_world_material_grid(const PackedByteArray &p_grid);
     PackedByteArray get_world_material_grid() const;
 

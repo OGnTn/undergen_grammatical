@@ -3,6 +3,7 @@
 #include "density_grid.h"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/math.hpp>
+#include <godot_cpp/classes/geometry_instance3d.hpp>
 
 namespace godot {
 
@@ -46,6 +47,10 @@ void UnderGenMesherNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_flip_normals", "enabled"), &UnderGenMesherNode::set_flip_normals);
     ClassDB::bind_method(D_METHOD("get_flip_normals"), &UnderGenMesherNode::get_flip_normals);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_normals"), "set_flip_normals", "get_flip_normals");
+
+    ClassDB::bind_method(D_METHOD("set_cast_shadows", "enabled"), &UnderGenMesherNode::set_cast_shadows);
+    ClassDB::bind_method(D_METHOD("get_cast_shadows"), &UnderGenMesherNode::get_cast_shadows);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "cast_shadows"), "set_cast_shadows", "get_cast_shadows");
 }
 
 void UnderGenMesherNode::set_chunk_size(int p_size) { chunk_size = p_size; }
@@ -72,6 +77,9 @@ bool UnderGenMesherNode::get_smooth_normals() const { return smooth_normals; }
 
 void UnderGenMesherNode::set_flip_normals(bool p_enabled) { flip_normals = p_enabled; }
 bool UnderGenMesherNode::get_flip_normals() const { return flip_normals; }
+
+void UnderGenMesherNode::set_cast_shadows(bool p_enabled) { cast_shadows = p_enabled; }
+bool UnderGenMesherNode::get_cast_shadows() const { return cast_shadows; }
 
 void UnderGenMesherNode::_execute(const Dictionary &inputs, Dictionary &outputs) {
     // This base version stores the context. The parent UnderGenWorld3D
@@ -114,6 +122,7 @@ void UnderGenMesherNode::execute_with_parent(const Dictionary &inputs, Dictionar
                 chunk->set_generate_occluder(generate_occluder);
                 chunk->set_smooth_normals(smooth_normals);
                 chunk->set_flip_normals(flip_normals);
+                chunk->set_cast_shadows_setting(cast_shadows ? GeometryInstance3D::SHADOW_CASTING_SETTING_ON : GeometryInstance3D::SHADOW_CASTING_SETTING_OFF);
                 if (liquid_material.is_valid()) {
                     // We'll call set_liquid_material, set_liquid_material_id, set_generate_liquid_trigger on the chunk
                     chunk->call("set_liquid_material", liquid_material);

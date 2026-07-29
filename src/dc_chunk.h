@@ -51,6 +51,8 @@ private:
     bool use_qef = true;
     float qef_regularization = 1e-4f;
     Dictionary material_thicknesses;
+    bool stepped_transitions = true;
+    Dictionary material_stepped;
 
     void _generate_liquid_mesh();
     void _clear_liquid();
@@ -114,6 +116,12 @@ public:
 
     void set_material_thicknesses(const Dictionary &p_thicknesses);
     Dictionary get_material_thicknesses() const;
+
+    void set_stepped_transitions(bool p_stepped);
+    bool get_stepped_transitions() const;
+
+    void set_material_stepped(const Dictionary &p_stepped);
+    Dictionary get_material_stepped() const;
 
     // Dual Contouring parameters
     void set_use_qef(bool p_use);

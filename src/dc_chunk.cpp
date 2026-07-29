@@ -19,18 +19,20 @@
 
 namespace godot {
 
-// Simple hash function helper for Vector3i keys
-struct Vector3iHash {
-    std::size_t operator()(const Vector3i& v) const {
-        return (std::hash<int>()(v.x) ^ (std::hash<int>()(v.y) << 1)) ^ (std::hash<int>()(v.z) << 2);
-    }
-};
+
 
 struct CellVertexInfo {
-    Vector3 position;
+    Vector3 position;      // Legacy / blended position
+    Vector3 position_base; // Unscaled base position (thickness = 1.0)
     Vector3 normal;
     int material_id = 0;
     int master_index = -1;
+
+    std::vector<Vector3i> edge_cp1;
+    std::vector<Vector3i> edge_cp2;
+    std::vector<bool> edge_cp1_solid;
+    std::vector<float> edge_unscaled_t;
+    std::vector<Vector3> edge_normals;
 };
 
 struct SurfaceBuilder {
@@ -114,6 +116,14 @@ void DCChunk::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_material_thicknesses", "thicknesses"), &DCChunk::set_material_thicknesses);
     ClassDB::bind_method(D_METHOD("get_material_thicknesses"), &DCChunk::get_material_thicknesses);
     ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "material_thicknesses"), "set_material_thicknesses", "get_material_thicknesses");
+
+    ClassDB::bind_method(D_METHOD("set_stepped_transitions", "stepped"), &DCChunk::set_stepped_transitions);
+    ClassDB::bind_method(D_METHOD("get_stepped_transitions"), &DCChunk::get_stepped_transitions);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "stepped_transitions"), "set_stepped_transitions", "get_stepped_transitions");
+
+    ClassDB::bind_method(D_METHOD("set_material_stepped", "stepped"), &DCChunk::set_material_stepped);
+    ClassDB::bind_method(D_METHOD("get_material_stepped"), &DCChunk::get_material_stepped);
+    ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "material_stepped"), "set_material_stepped", "get_material_stepped");
 
     // Dual Contouring Specific
     ClassDB::bind_method(D_METHOD("set_use_qef", "use"), &DCChunk::set_use_qef);
@@ -284,10 +294,14 @@ void DCChunk::generate_mesh_from_density_grid() {
                     is_solid[i] = values[i] > threshold;
                 }
 
-                std::vector<Vector3> pts;
+                std::vector<Vector3> pts_legacy;
+                std::vector<Vector3> pts_unscaled;
                 std::vector<Vector3> norms;
-                pts.reserve(12);
+                pts_legacy.reserve(12);
+                pts_unscaled.reserve(12);
                 norms.reserve(12);
+
+                CellVertexInfo info;
 
                 for (int j = 0; j < 12; ++j) {
                     int c1 = cube_edges[j][0];
@@ -299,13 +313,13 @@ void DCChunk::generate_mesh_from_density_grid() {
                         float val1 = values[c1];
                         float val2 = values[c2];
 
-                        float t = 0.5f;
+                        float t_unscaled = 0.5f;
                         if (Math::abs(val1 - val2) > 1e-6f) {
-                            t = (threshold - val1) / (val2 - val1);
+                            t_unscaled = (threshold - val1) / (val2 - val1);
                         }
-                        t = Math::clamp(t, 0.0f, 1.0f);
+                        t_unscaled = Math::clamp(t_unscaled, 0.0f, 1.0f);
 
-                        // Apply thickness scaling
+                        // Apply thickness scaling for legacy mode
                         int mat1 = sample_material(cp1.x, cp1.y, cp1.z);
                         int mat2 = sample_material(cp2.x, cp2.y, cp2.z);
                         float thickness1 = 1.0f;
@@ -319,41 +333,52 @@ void DCChunk::generate_mesh_from_density_grid() {
                             thickness2 = (float)material_thicknesses[key2];
                         }
 
+                        float t_legacy = t_unscaled;
                         if (val1 > threshold && val2 <= threshold) {
-                            t = t * thickness1;
+                            t_legacy = t_unscaled * thickness1;
                         } else if (val2 > threshold && val1 <= threshold) {
-                            t = 1.0f - (1.0f - t) * thickness2;
+                            t_legacy = 1.0f - (1.0f - t_unscaled) * thickness2;
                         }
 
-                        Vector3 p_grid = Vector3(cp1) + t * Vector3(cp2 - cp1);
-                        pts.push_back(p_grid);
+                        pts_legacy.push_back(Vector3(cp1) + t_legacy * Vector3(cp2 - cp1));
+                        pts_unscaled.push_back(Vector3(cp1) + t_unscaled * Vector3(cp2 - cp1));
 
                         Vector3 n1 = get_grid_gradient(cp1);
                         Vector3 n2 = get_grid_gradient(cp2);
-                        Vector3 n_interp = n1 + t * (n2 - n1);
+                        Vector3 n_interp = n1 + t_unscaled * (n2 - n1);
                         if (n_interp.length_squared() > 1e-8f) {
                             norms.push_back(n_interp.normalized());
                         } else {
                             norms.push_back(Vector3(0, 1, 0));
                         }
+
+                        info.edge_cp1.push_back(cp1);
+                        info.edge_cp2.push_back(cp2);
+                        info.edge_cp1_solid.push_back(val1 > threshold);
+                        info.edge_unscaled_t.push_back(t_unscaled);
+                        info.edge_normals.push_back(norms.back());
                     }
                 }
 
-                if (pts.empty()) continue; // Inactive cell
+                if (pts_legacy.empty()) continue; // Inactive cell
 
                 Vector3 cell_min = Vector3(world_cell);
                 Vector3 cell_max = Vector3(world_cell + Vector3i(1, 1, 1));
 
-                Vector3 vertex_grid;
+                Vector3 vertex_grid_legacy;
+                Vector3 vertex_grid_base;
                 if (use_qef) {
-                    vertex_grid = solve_qef_cramer(pts, norms, cell_min, cell_max, qef_regularization);
+                    vertex_grid_legacy = solve_qef_cramer(pts_legacy, norms, cell_min, cell_max, qef_regularization);
+                    vertex_grid_base = solve_qef_cramer(pts_unscaled, norms, cell_min, cell_max, qef_regularization);
                 } else {
-                    Vector3 sum(0, 0, 0);
-                    for (const Vector3 &p : pts) sum += p;
-                    vertex_grid = sum / (float)pts.size();
-                }
+                    Vector3 sum_legacy(0, 0, 0);
+                    for (const Vector3 &p : pts_legacy) sum_legacy += p;
+                    vertex_grid_legacy = sum_legacy / (float)pts_legacy.size();
 
-                Vector3 vertex_local = (vertex_grid - Vector3(chunk_grid_offset)) * voxel_size;
+                    Vector3 sum_base(0, 0, 0);
+                    for (const Vector3 &p : pts_unscaled) sum_base += p;
+                    vertex_grid_base = sum_base / (float)pts_unscaled.size();
+                }
 
                 Vector3 normal_avg(0, 0, 0);
                 for (const Vector3 &n : norms) normal_avg += n;
@@ -391,14 +416,145 @@ void DCChunk::generate_mesh_from_density_grid() {
                     mat_idx = sample_material(cp.x, cp.y, cp.z);
                 }
 
-                CellVertexInfo info;
-                info.position = vertex_local;
+                info.position = (vertex_grid_legacy - Vector3(chunk_grid_offset)) * voxel_size;
+                info.position_base = (vertex_grid_base - Vector3(chunk_grid_offset)) * voxel_size;
                 info.normal = normal_avg;
                 info.material_id = mat_idx;
                 cell_vertices[world_cell] = info;
             }
         }
     }
+
+    std::map<int, SurfaceBuilder> surfaces;
+    std::unordered_map<uint64_t, Vector3> cell_mat_vertices;
+
+    auto get_vertex_for_material = [&](const Vector3i &world_cell, int mat_id) -> Vector3 {
+        auto it = cell_vertices.find(world_cell);
+        if (it == cell_vertices.end()) return Vector3();
+
+        const CellVertexInfo &info = it->second;
+
+        if (!stepped_transitions) {
+            return info.position;
+        }
+
+        bool is_stepped = true;
+        Variant key = mat_id;
+        if (material_stepped.has(key)) {
+            is_stepped = (bool)material_stepped[key];
+        }
+        if (!is_stepped) {
+            return info.position;
+        }
+
+        float thickness = 1.0f;
+        if (material_thicknesses.has(key)) {
+            thickness = (float)material_thicknesses[key];
+        }
+
+        if (Math::abs(thickness - 1.0f) < 1e-4f) {
+            return info.position_base;
+        }
+
+        uint64_t cache_key = (((uint64_t)mat_id) << 48) ^ (uint64_t)Vector3iHash()(world_cell);
+        auto cache_it = cell_mat_vertices.find(cache_key);
+        if (cache_it != cell_mat_vertices.end()) {
+            return cache_it->second;
+        }
+
+        std::vector<Vector3> pts_scaled;
+        pts_scaled.reserve(info.edge_unscaled_t.size());
+        for (size_t k = 0; k < info.edge_unscaled_t.size(); ++k) {
+            float t_unscaled = info.edge_unscaled_t[k];
+            Vector3i cp1 = info.edge_cp1[k];
+            Vector3i cp2 = info.edge_cp2[k];
+            bool cp1_solid = info.edge_cp1_solid[k];
+
+            float t_scaled = t_unscaled;
+            if (cp1_solid) {
+                t_scaled = t_unscaled * thickness;
+            } else {
+                t_scaled = 1.0f - (1.0f - t_unscaled) * thickness;
+            }
+            pts_scaled.push_back(Vector3(cp1) + t_scaled * Vector3(cp2 - cp1));
+        }
+
+        Vector3 cell_min = Vector3(world_cell);
+        Vector3 cell_max = Vector3(world_cell + Vector3i(1, 1, 1));
+        Vector3 vertex_grid;
+        if (use_qef) {
+            vertex_grid = solve_qef_cramer(pts_scaled, info.edge_normals, cell_min, cell_max, qef_regularization);
+        } else {
+            Vector3 sum(0, 0, 0);
+            for (const Vector3 &p : pts_scaled) sum += p;
+            vertex_grid = sum / (float)pts_scaled.size();
+        }
+
+        Vector3 vertex_local = (vertex_grid - Vector3(chunk_grid_offset)) * voxel_size;
+        cell_mat_vertices[cache_key] = vertex_local;
+        return vertex_local;
+    };
+
+    auto get_cell_normal = [&](const Vector3i &world_cell) -> Vector3 {
+        auto it = cell_vertices.find(world_cell);
+        if (it != cell_vertices.end()) return it->second.normal;
+        return Vector3(0, 1, 0);
+    };
+
+    auto add_quad = [&](int mat_id, const Vector3 &p0, const Vector3 &p1, const Vector3 &p2, const Vector3 &p3,
+                        const Vector3 &n0, const Vector3 &n1, const Vector3 &n2, const Vector3 &n3,
+                        bool start_solid) {
+        SurfaceBuilder &surf = surfaces[mat_id];
+        int b = surf.vertices.size();
+        surf.vertices.append(p0); surf.normals.append(n0);
+        surf.vertices.append(p1); surf.normals.append(n1);
+        surf.vertices.append(p2); surf.normals.append(n2);
+        surf.vertices.append(p3); surf.normals.append(n3);
+
+        if (start_solid) {
+            surf.indices.append(b + 0); surf.indices.append(b + 1); surf.indices.append(b + 2);
+            surf.indices.append(b + 0); surf.indices.append(b + 2); surf.indices.append(b + 3);
+        } else {
+            surf.indices.append(b + 0); surf.indices.append(b + 3); surf.indices.append(b + 2);
+            surf.indices.append(b + 0); surf.indices.append(b + 2); surf.indices.append(b + 1);
+        }
+    };
+
+    struct PairHash {
+        std::size_t operator()(const std::pair<Vector3i, Vector3i>& p) const {
+            return Vector3iHash()(p.first) ^ (Vector3iHash()(p.second) << 1);
+        }
+    };
+
+    struct EdgeQuadRecord {
+        int mat_id;
+        float thickness;
+        Vector3 pA;
+        Vector3 pB;
+        Vector3 nA;
+        Vector3 nB;
+        Vector3 quad_pos;
+    };
+
+    std::unordered_map<std::pair<Vector3i, Vector3i>, std::vector<EdgeQuadRecord>, PairHash> boundary_edges;
+
+    auto record_boundary_edge = [&](const Vector3i &cA, const Vector3i &cB, int mat_id, float thickness,
+                                    const Vector3 &pA, const Vector3 &pB, const Vector3 &nA, const Vector3 &nB,
+                                    const Vector3 &quad_pos) {
+        std::pair<Vector3i, Vector3i> pair_key;
+        Vector3 pA_ordered, pB_ordered;
+        Vector3 nA_ordered, nB_ordered;
+        if (cA.x < cB.x || (cA.x == cB.x && cA.y < cB.y) || (cA.x == cB.x && cA.y == cB.y && cA.z < cB.z)) {
+            pair_key = {cA, cB};
+            pA_ordered = pA; pB_ordered = pB;
+            nA_ordered = nA; nB_ordered = nB;
+        } else {
+            pair_key = {cB, cA};
+            pA_ordered = pB; pB_ordered = pA;
+            nA_ordered = nB; nB_ordered = nA;
+        }
+        boundary_edges[pair_key].push_back({mat_id, thickness, pA_ordered, pB_ordered, nA_ordered, nB_ordered, quad_pos});
+    };
 
     PackedVector3Array master_vertices;
     PackedVector3Array master_normals;
@@ -439,24 +595,45 @@ void DCChunk::generate_mesh_from_density_grid() {
                         Vector3i c2 = world_pos - Vector3i(0, 1, 1);
                         Vector3i c3 = world_pos - Vector3i(0, 1, 0);
 
-                        int i0 = get_or_create_vertex(c0);
-                        int i1 = get_or_create_vertex(c1);
-                        int i2 = get_or_create_vertex(c2);
-                        int i3 = get_or_create_vertex(c3);
+                        int mat = start_solid ? sample_material(world_pos.x, world_pos.y, world_pos.z)
+                                              : sample_material(world_pos.x + 1, world_pos.y, world_pos.z);
 
-                        if (i0 != -1 && i1 != -1 && i2 != -1 && i3 != -1) {
-                            int mat = start_solid ? sample_material(world_pos.x, world_pos.y, world_pos.z)
-                                                  : sample_material(world_pos.x + 1, world_pos.y, world_pos.z);
+                        if (!stepped_transitions) {
+                            int i0 = get_or_create_vertex(c0);
+                            int i1 = get_or_create_vertex(c1);
+                            int i2 = get_or_create_vertex(c2);
+                            int i3 = get_or_create_vertex(c3);
 
-                            if (start_solid) {
-                                master_indices.append(i0); master_indices.append(i1); master_indices.append(i2);
-                                master_indices.append(i0); master_indices.append(i2); master_indices.append(i3);
-                            } else {
-                                master_indices.append(i0); master_indices.append(i3); master_indices.append(i2);
-                                master_indices.append(i0); master_indices.append(i2); master_indices.append(i1);
+                            if (i0 != -1 && i1 != -1 && i2 != -1 && i3 != -1) {
+                                if (start_solid) {
+                                    master_indices.append(i0); master_indices.append(i1); master_indices.append(i2);
+                                    master_indices.append(i0); master_indices.append(i2); master_indices.append(i3);
+                                } else {
+                                    master_indices.append(i0); master_indices.append(i3); master_indices.append(i2);
+                                    master_indices.append(i0); master_indices.append(i2); master_indices.append(i1);
+                                }
+                                master_triangle_materials.push_back(mat);
+                                master_triangle_materials.push_back(mat);
                             }
-                            master_triangle_materials.push_back(mat);
-                            master_triangle_materials.push_back(mat);
+                        } else {
+                            Vector3 p0 = get_vertex_for_material(c0, mat);
+                            Vector3 p1 = get_vertex_for_material(c1, mat);
+                            Vector3 p2 = get_vertex_for_material(c2, mat);
+                            Vector3 p3 = get_vertex_for_material(c3, mat);
+
+                            Vector3 n0 = get_cell_normal(c0);
+                            Vector3 n1 = get_cell_normal(c1);
+                            Vector3 n2 = get_cell_normal(c2);
+                            Vector3 n3 = get_cell_normal(c3);
+
+                            add_quad(mat, p0, p1, p2, p3, n0, n1, n2, n3, start_solid);
+
+                            float thickness = material_thicknesses.has((Variant)mat) ? (float)material_thicknesses[(Variant)mat] : 1.0f;
+                            Vector3 q_pos = (p0 + p1 + p2 + p3) * 0.25f;
+                            record_boundary_edge(c0, c1, mat, thickness, p0, p1, n0, n1, q_pos);
+                            record_boundary_edge(c1, c2, mat, thickness, p1, p2, n1, n2, q_pos);
+                            record_boundary_edge(c2, c3, mat, thickness, p2, p3, n2, n3, q_pos);
+                            record_boundary_edge(c3, c0, mat, thickness, p3, p0, n3, n0, q_pos);
                         }
                     }
                 }
@@ -474,24 +651,45 @@ void DCChunk::generate_mesh_from_density_grid() {
                         Vector3i c2 = world_pos - Vector3i(1, 0, 1);
                         Vector3i c3 = world_pos - Vector3i(0, 0, 1);
 
-                        int i0 = get_or_create_vertex(c0);
-                        int i1 = get_or_create_vertex(c1);
-                        int i2 = get_or_create_vertex(c2);
-                        int i3 = get_or_create_vertex(c3);
+                        int mat = start_solid ? sample_material(world_pos.x, world_pos.y, world_pos.z)
+                                              : sample_material(world_pos.x, world_pos.y + 1, world_pos.z);
 
-                        if (i0 != -1 && i1 != -1 && i2 != -1 && i3 != -1) {
-                            int mat = start_solid ? sample_material(world_pos.x, world_pos.y, world_pos.z)
-                                                  : sample_material(world_pos.x, world_pos.y + 1, world_pos.z);
+                        if (!stepped_transitions) {
+                            int i0 = get_or_create_vertex(c0);
+                            int i1 = get_or_create_vertex(c1);
+                            int i2 = get_or_create_vertex(c2);
+                            int i3 = get_or_create_vertex(c3);
 
-                            if (start_solid) {
-                                master_indices.append(i0); master_indices.append(i1); master_indices.append(i2);
-                                master_indices.append(i0); master_indices.append(i2); master_indices.append(i3);
-                            } else {
-                                master_indices.append(i0); master_indices.append(i3); master_indices.append(i2);
-                                master_indices.append(i0); master_indices.append(i2); master_indices.append(i1);
+                            if (i0 != -1 && i1 != -1 && i2 != -1 && i3 != -1) {
+                                if (start_solid) {
+                                    master_indices.append(i0); master_indices.append(i1); master_indices.append(i2);
+                                    master_indices.append(i0); master_indices.append(i2); master_indices.append(i3);
+                                } else {
+                                    master_indices.append(i0); master_indices.append(i3); master_indices.append(i2);
+                                    master_indices.append(i0); master_indices.append(i2); master_indices.append(i1);
+                                }
+                                master_triangle_materials.push_back(mat);
+                                master_triangle_materials.push_back(mat);
                             }
-                            master_triangle_materials.push_back(mat);
-                            master_triangle_materials.push_back(mat);
+                        } else {
+                            Vector3 p0 = get_vertex_for_material(c0, mat);
+                            Vector3 p1 = get_vertex_for_material(c1, mat);
+                            Vector3 p2 = get_vertex_for_material(c2, mat);
+                            Vector3 p3 = get_vertex_for_material(c3, mat);
+
+                            Vector3 n0 = get_cell_normal(c0);
+                            Vector3 n1 = get_cell_normal(c1);
+                            Vector3 n2 = get_cell_normal(c2);
+                            Vector3 n3 = get_cell_normal(c3);
+
+                            add_quad(mat, p0, p1, p2, p3, n0, n1, n2, n3, start_solid);
+
+                            float thickness = material_thicknesses.has((Variant)mat) ? (float)material_thicknesses[(Variant)mat] : 1.0f;
+                            Vector3 q_pos = (p0 + p1 + p2 + p3) * 0.25f;
+                            record_boundary_edge(c0, c1, mat, thickness, p0, p1, n0, n1, q_pos);
+                            record_boundary_edge(c1, c2, mat, thickness, p1, p2, n1, n2, q_pos);
+                            record_boundary_edge(c2, c3, mat, thickness, p2, p3, n2, n3, q_pos);
+                            record_boundary_edge(c3, c0, mat, thickness, p3, p0, n3, n0, q_pos);
                         }
                     }
                 }
@@ -509,24 +707,45 @@ void DCChunk::generate_mesh_from_density_grid() {
                         Vector3i c2 = world_pos - Vector3i(1, 1, 0);
                         Vector3i c3 = world_pos - Vector3i(1, 0, 0);
 
-                        int i0 = get_or_create_vertex(c0);
-                        int i1 = get_or_create_vertex(c1);
-                        int i2 = get_or_create_vertex(c2);
-                        int i3 = get_or_create_vertex(c3);
+                        int mat = start_solid ? sample_material(world_pos.x, world_pos.y, world_pos.z)
+                                              : sample_material(world_pos.x, world_pos.y, world_pos.z + 1);
 
-                        if (i0 != -1 && i1 != -1 && i2 != -1 && i3 != -1) {
-                            int mat = start_solid ? sample_material(world_pos.x, world_pos.y, world_pos.z)
-                                                  : sample_material(world_pos.x, world_pos.y, world_pos.z + 1);
+                        if (!stepped_transitions) {
+                            int i0 = get_or_create_vertex(c0);
+                            int i1 = get_or_create_vertex(c1);
+                            int i2 = get_or_create_vertex(c2);
+                            int i3 = get_or_create_vertex(c3);
 
-                            if (start_solid) {
-                                master_indices.append(i0); master_indices.append(i1); master_indices.append(i2);
-                                master_indices.append(i0); master_indices.append(i2); master_indices.append(i3);
-                            } else {
-                                master_indices.append(i0); master_indices.append(i3); master_indices.append(i2);
-                                master_indices.append(i0); master_indices.append(i2); master_indices.append(i1);
+                            if (i0 != -1 && i1 != -1 && i2 != -1 && i3 != -1) {
+                                if (start_solid) {
+                                    master_indices.append(i0); master_indices.append(i1); master_indices.append(i2);
+                                    master_indices.append(i0); master_indices.append(i2); master_indices.append(i3);
+                                } else {
+                                    master_indices.append(i0); master_indices.append(i3); master_indices.append(i2);
+                                    master_indices.append(i0); master_indices.append(i2); master_indices.append(i1);
+                                }
+                                master_triangle_materials.push_back(mat);
+                                master_triangle_materials.push_back(mat);
                             }
-                            master_triangle_materials.push_back(mat);
-                            master_triangle_materials.push_back(mat);
+                        } else {
+                            Vector3 p0 = get_vertex_for_material(c0, mat);
+                            Vector3 p1 = get_vertex_for_material(c1, mat);
+                            Vector3 p2 = get_vertex_for_material(c2, mat);
+                            Vector3 p3 = get_vertex_for_material(c3, mat);
+
+                            Vector3 n0 = get_cell_normal(c0);
+                            Vector3 n1 = get_cell_normal(c1);
+                            Vector3 n2 = get_cell_normal(c2);
+                            Vector3 n3 = get_cell_normal(c3);
+
+                            add_quad(mat, p0, p1, p2, p3, n0, n1, n2, n3, start_solid);
+
+                            float thickness = material_thicknesses.has((Variant)mat) ? (float)material_thicknesses[(Variant)mat] : 1.0f;
+                            Vector3 q_pos = (p0 + p1 + p2 + p3) * 0.25f;
+                            record_boundary_edge(c0, c1, mat, thickness, p0, p1, n0, n1, q_pos);
+                            record_boundary_edge(c1, c2, mat, thickness, p1, p2, n1, n2, q_pos);
+                            record_boundary_edge(c2, c3, mat, thickness, p2, p3, n2, n3, q_pos);
+                            record_boundary_edge(c3, c0, mat, thickness, p3, p0, n3, n0, q_pos);
                         }
                     }
                 }
@@ -534,32 +753,72 @@ void DCChunk::generate_mesh_from_density_grid() {
         }
     }
 
-    if (master_vertices.is_empty()) return;
+    if (stepped_transitions) {
+        // Generate Step Quads at material boundaries
+        for (const auto &pair_entry : boundary_edges) {
+            const std::vector<EdgeQuadRecord> &recs = pair_entry.second;
+            if (recs.size() == 2 && recs[0].mat_id != recs[1].mat_id && Math::abs(recs[0].thickness - recs[1].thickness) > 1e-4f) {
+                const EdgeQuadRecord &rec_thick = recs[0].thickness > recs[1].thickness ? recs[0] : recs[1];
+                const EdgeQuadRecord &rec_thin  = recs[0].thickness > recs[1].thickness ? recs[1] : recs[0];
 
-    if (flip_normals) {
-        for (int i = 0; i < master_normals.size(); ++i) {
-            master_normals[i] = -master_normals[i];
+                Vector3 tA = rec_thick.pA;
+                Vector3 tB = rec_thick.pB;
+                Vector3 bA = rec_thin.pA;
+                Vector3 bB = rec_thin.pB;
+
+                Vector3 step_dir = rec_thin.quad_pos - rec_thick.quad_pos;
+
+                Vector3 dir1 = (bA - tA);
+                Vector3 dir2 = (bB - tA);
+                Vector3 step_norm = dir1.cross(dir2);
+                if (step_norm.length_squared() > 1e-8f) {
+                    step_norm = step_norm.normalized();
+                    if (step_norm.dot(step_dir) < 0.0f) {
+                        step_norm = -step_norm;
+                        std::swap(bA, tB);
+                    }
+                } else {
+                    step_norm = step_dir.length_squared() > 1e-8f ? step_dir.normalized() : rec_thick.nA;
+                }
+
+                SurfaceBuilder &surf = surfaces[rec_thick.mat_id];
+                int base = surf.vertices.size();
+                surf.vertices.append(tA); surf.normals.append(step_norm);
+                surf.vertices.append(bA); surf.normals.append(step_norm);
+                surf.vertices.append(bB); surf.normals.append(step_norm);
+                surf.vertices.append(tB); surf.normals.append(step_norm);
+
+                surf.indices.append(base + 0); surf.indices.append(base + 1); surf.indices.append(base + 2);
+                surf.indices.append(base + 0); surf.indices.append(base + 2); surf.indices.append(base + 3);
+            }
         }
-    }
+    } else {
+        if (master_vertices.is_empty()) return;
 
-    // Split into Material Surfaces
-    std::map<int, SurfaceBuilder> surfaces;
-    int num_triangles = master_triangle_materials.size();
-    for (int t = 0; t < num_triangles; ++t) {
-        int mat_id = master_triangle_materials[t];
-        SurfaceBuilder &surf = surfaces[mat_id];
+        if (flip_normals) {
+            for (int i = 0; i < master_normals.size(); ++i) {
+                master_normals[i] = -master_normals[i];
+            }
+        }
 
-        for (int k = 0; k < 3; ++k) {
-            int master_idx = master_indices[t * 3 + k];
-            auto it = surf.index_cache.find(master_idx);
-            if (it != surf.index_cache.end()) {
-                surf.indices.append(it->second);
-            } else {
-                int new_surf_idx = surf.vertices.size();
-                surf.vertices.append(master_vertices[master_idx]);
-                surf.normals.append(master_normals[master_idx]);
-                surf.indices.append(new_surf_idx);
-                surf.index_cache[master_idx] = new_surf_idx;
+        // Split into Material Surfaces (Legacy)
+        int num_triangles = master_triangle_materials.size();
+        for (int t = 0; t < num_triangles; ++t) {
+            int mat_id = master_triangle_materials[t];
+            SurfaceBuilder &surf = surfaces[mat_id];
+
+            for (int k = 0; k < 3; ++k) {
+                int master_idx = master_indices[t * 3 + k];
+                auto it = surf.index_cache.find(master_idx);
+                if (it != surf.index_cache.end()) {
+                    surf.indices.append(it->second);
+                } else {
+                    int new_surf_idx = surf.vertices.size();
+                    surf.vertices.append(master_vertices[master_idx]);
+                    surf.normals.append(master_normals[master_idx]);
+                    surf.indices.append(new_surf_idx);
+                    surf.index_cache[master_idx] = new_surf_idx;
+                }
             }
         }
     }
@@ -978,6 +1237,12 @@ bool DCChunk::get_flip_normals() const { return flip_normals; }
 
 void DCChunk::set_material_thicknesses(const Dictionary &p_thicknesses) { material_thicknesses = p_thicknesses; }
 Dictionary DCChunk::get_material_thicknesses() const { return material_thicknesses; }
+
+void DCChunk::set_stepped_transitions(bool p_stepped) { stepped_transitions = p_stepped; }
+bool DCChunk::get_stepped_transitions() const { return stepped_transitions; }
+
+void DCChunk::set_material_stepped(const Dictionary &p_stepped) { material_stepped = p_stepped; }
+Dictionary DCChunk::get_material_stepped() const { return material_stepped; }
 
 void DCChunk::set_use_qef(bool p_use) { use_qef = p_use; }
 bool DCChunk::get_use_qef() const { return use_qef; }

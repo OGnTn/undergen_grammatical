@@ -10,6 +10,7 @@
 
 namespace godot {
 
+class DensityGrid;
 class UnderGenPointSet;
 
 class UnderGenWorld3D : public Node3D {
@@ -23,6 +24,7 @@ private:
     float surface_threshold = 0.0f;
     bool generate_on_ready = false;
     bool spawn_on_generation_complete = true;
+    bool cast_shadows = true;
     Array vox_spawns;
     NodePath parent_node_path;
     NodePath multiplayer_spawner_path;
@@ -72,6 +74,9 @@ public:
     void set_spawn_on_generation_complete(bool p_enabled);
     bool get_spawn_on_generation_complete() const;
 
+    void set_cast_shadows(bool p_cast_shadows);
+    bool get_cast_shadows() const;
+
     void set_parent_node(const NodePath &p_path);
     NodePath get_parent_node() const;
 
@@ -99,6 +104,9 @@ public:
     void generate();
     void cancel_generation();
     bool get_is_generating() const { return is_generating; }
+
+    Ref<DensityGrid> get_density_grid() const;
+    Dictionary get_last_context() const { return _last_context; }
 
 private:
     // Run on background thread
