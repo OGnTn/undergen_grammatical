@@ -377,38 +377,22 @@ void UnderGenWorld3D::_on_meshing_completed(const Dictionary &outputs) {
         _last_context = Dictionary(); // Release reference safely without clearing shared dictionary data
     }
 
-    // Gather all vox spawns from any VoxStamper nodes
+    // Gather all vox spawns from any pipeline nodes
     vox_spawns.clear();
     if (pipeline.is_valid()) {
         Array nodes = pipeline->get_nodes();
         for (int i = 0; i < nodes.size(); ++i) {
             Ref<UnderGenNode> node = nodes[i];
             if (node.is_null()) continue;
-            UnderGenVoxStampNode* stamper = Object::cast_to<UnderGenVoxStampNode>(node.ptr());
-            if (stamper) {
-                Dictionary node_outputs = pipeline->get_node_outputs(stamper->get_name());
-                Dictionary context = node_outputs.get(0, Dictionary());
-                if (context.has("vox_spawns")) {
-                    Array spawns = context["vox_spawns"];
-                    vox_spawns.append_array(spawns);
-                }
-            }
-            UnderGenDetailStamperNode* detail_stamper = Object::cast_to<UnderGenDetailStamperNode>(node.ptr());
-            if (detail_stamper) {
-                Dictionary node_outputs = pipeline->get_node_outputs(detail_stamper->get_name());
-                Dictionary context = node_outputs.get(0, Dictionary());
-                if (context.has("vox_spawns")) {
-                    Array spawns = context["vox_spawns"];
-                    vox_spawns.append_array(spawns);
-                }
-            }
-            UnderGenModularAStarCarverNode* carver = Object::cast_to<UnderGenModularAStarCarverNode>(node.ptr());
-            if (carver) {
-                Dictionary node_outputs = pipeline->get_node_outputs(carver->get_name());
-                Dictionary context = node_outputs.get(0, Dictionary());
-                if (context.has("vox_spawns")) {
-                    Array spawns = context["vox_spawns"];
-                    vox_spawns.append_array(spawns);
+            Dictionary node_outputs = pipeline->get_node_outputs(node->get_name());
+            Dictionary context = node_outputs.get(0, Dictionary());
+            if (context.has("vox_spawns")) {
+                Array spawns = context["vox_spawns"];
+                for (int s_idx = 0; s_idx < spawns.size(); ++s_idx) {
+                    Dictionary s_dict = spawns[s_idx];
+                    if (!vox_spawns.has(s_dict)) {
+                        vox_spawns.append(s_dict);
+                    }
                 }
             }
         }

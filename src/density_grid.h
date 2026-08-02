@@ -23,6 +23,18 @@ struct Vector3iHash {
     }
 };
 
+struct HermiteEdgeData {
+    float t = 0.5f;
+    Vector3 normal = Vector3(0, 1, 0);
+};
+
+inline uint64_t get_hermite_edge_key(int x, int y, int z, int axis) {
+    return (((uint64_t)(x + 32768) & 0xFFFFF) << 42) |
+           (((uint64_t)(y + 32768) & 0xFFFFF) << 22) |
+           (((uint64_t)(z + 32768) & 0xFFFFF) << 2) |
+           ((uint64_t)axis & 0x3);
+}
+
 class DensityGrid : public Resource {
     GDCLASS(DensityGrid, Resource);
 
@@ -35,6 +47,7 @@ protected:
 
     // Sparse Voxel Chunk Storage
     std::unordered_map<Vector3i, VoxelChunk*, Vector3iHash> chunks;
+    std::unordered_map<uint64_t, HermiteEdgeData> hermite_edges;
 
     std::vector<String> zone_id_map;
     int grid_size_x = 0;
@@ -107,6 +120,11 @@ public:
     String get_zone_name_by_id(int zone_id) const;
     int get_zone_count() const;
     int register_zone_name(String name);
+
+    // Hermite Edge Data API
+    void set_hermite_edge(const Vector3i &pos, int axis, float t, const Vector3 &normal);
+    bool get_hermite_edge(const Vector3i &pos, int axis, HermiteEdgeData &out_data) const;
+    void clear_hermite_edges();
 };
 
 } // namespace godot

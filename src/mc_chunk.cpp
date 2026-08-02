@@ -650,13 +650,11 @@ Vector3 MCChunk::_interpolate_vertex(const Vector3 &p1, const Vector3 &p2, float
 
     // Apply thickness scaling
     if (val1 > surface && val2 <= surface) {
-        // p1 is solid, p2 is empty. The surface boundary is at distance t from p1.
-        // Scale this distance by thickness1.
-        t = t * thickness1;
+        // p1 is solid, p2 is empty. Center the slab relative to surface boundary.
+        t = Math::clamp(t - (1.0f - thickness1) * 0.5f, 0.0f, 1.0f);
     } else if (val2 > surface && val1 <= surface) {
-        // p2 is solid, p1 is empty. The surface boundary is at distance (1 - t) from p2.
-        // Scale this distance by thickness2.
-        t = 1.0f - (1.0f - t) * thickness2;
+        // p2 is solid, p1 is empty. Center the slab relative to surface boundary.
+        t = Math::clamp(t + (1.0f - thickness2) * 0.5f, 0.0f, 1.0f);
     }
 
     // Use Godot's lerp function (Vector3 has lerp)

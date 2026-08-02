@@ -19,6 +19,7 @@ void DensityGrid::clear_chunks() {
         }
     }
     chunks.clear();
+    clear_hermite_edges();
 }
 
 Vector3i DensityGrid::world_to_chunk_coord(const Vector3i &pos) {
@@ -311,6 +312,28 @@ int DensityGrid::register_zone_name(String name) {
     }
     zone_id_map.push_back(name);
     return (int)zone_id_map.size() - 1;
+}
+
+void DensityGrid::set_hermite_edge(const Vector3i &pos, int axis, float t, const Vector3 &normal) {
+    uint64_t key = get_hermite_edge_key(pos.x, pos.y, pos.z, axis);
+    HermiteEdgeData data;
+    data.t = Math::clamp(t, 0.0f, 1.0f);
+    data.normal = normal.length_squared() > 1e-8f ? normal.normalized() : Vector3(0, 1, 0);
+    hermite_edges[key] = data;
+}
+
+bool DensityGrid::get_hermite_edge(const Vector3i &pos, int axis, HermiteEdgeData &out_data) const {
+    uint64_t key = get_hermite_edge_key(pos.x, pos.y, pos.z, axis);
+    auto it = hermite_edges.find(key);
+    if (it != hermite_edges.end()) {
+        out_data = it->second;
+        return true;
+    }
+    return false;
+}
+
+void DensityGrid::clear_hermite_edges() {
+    hermite_edges.clear();
 }
 
 } // namespace godot

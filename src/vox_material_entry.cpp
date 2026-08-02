@@ -23,7 +23,7 @@ void VoxMaterialEntry::_bind_methods() {
 
     ADD_PROPERTY(PropertyInfo(Variant::INT, "palette_index", PROPERTY_HINT_RANGE, "0,255,1"), "set_palette_index", "get_palette_index");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "material_id", PROPERTY_HINT_RANGE, "0,255,1"), "set_material_id", "get_material_id");
-    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "thickness", PROPERTY_HINT_RANGE, "0.0,2.0,0.05"), "set_thickness", "get_thickness");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "thickness", PROPERTY_HINT_RANGE, "0.05,5.0,0.05"), "set_thickness", "get_thickness");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "stepped"), "set_stepped", "is_stepped");
 }
 
@@ -46,7 +46,7 @@ int VoxMaterialEntry::get_material_id() const {
 }
 
 void VoxMaterialEntry::set_thickness(float p_thickness) {
-    thickness = Math::clamp(p_thickness, 0.0f, 10.0f);
+    thickness = Math::clamp(p_thickness, 0.05f, 5.0f);
     emit_changed();
 }
 

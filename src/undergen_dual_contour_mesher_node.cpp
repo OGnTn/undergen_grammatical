@@ -17,7 +17,7 @@ void UnderGenDualContourMesherNode::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("set_qef_regularization", "regularization"), &UnderGenDualContourMesherNode::set_qef_regularization);
     ClassDB::bind_method(D_METHOD("get_qef_regularization"), &UnderGenDualContourMesherNode::get_qef_regularization);
-    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "qef_regularization"), "set_qef_regularization", "get_qef_regularization");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "qef_regularization", PROPERTY_HINT_RANGE, "0.0, 1.0, 0.00001, exp, or_greater"), "set_qef_regularization", "get_qef_regularization");
 
     ClassDB::bind_method(D_METHOD("set_stepped_transitions", "stepped"), &UnderGenDualContourMesherNode::set_stepped_transitions);
     ClassDB::bind_method(D_METHOD("get_stepped_transitions"), &UnderGenDualContourMesherNode::get_stepped_transitions);

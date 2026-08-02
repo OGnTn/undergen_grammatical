@@ -704,8 +704,11 @@ void UnderGenModularAStarCarverNode::_execute(const Dictionary &inputs, Dictiona
     for (int i = 0; i < vox_material_entries.size(); ++i) {
         Ref<VoxMaterialEntry> entry = vox_material_entries[i];
         if (entry.is_valid()) {
-            thicknesses[entry->get_material_id()] = entry->get_thickness();
-            stepped_dict[entry->get_material_id()] = entry->is_stepped();
+            int mat_id = entry->get_material_id();
+            if (mat_id > 0) {
+                thicknesses[mat_id] = entry->get_thickness();
+                stepped_dict[mat_id] = entry->is_stepped();
+            }
         }
     }
     context["material_thicknesses"] = thicknesses;

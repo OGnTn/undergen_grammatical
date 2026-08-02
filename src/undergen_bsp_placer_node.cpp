@@ -95,59 +95,81 @@ void UnderGenBSPPlacerNode::_execute(const Dictionary &inputs, Dictionary &outpu
         bool size_loaded = false;
 
         if (!r.vox_path.is_empty()) {
-            Ref<FileAccess> file = FileAccess::open(r.vox_path, FileAccess::READ);
-            if (file.is_valid()) {
-                uint64_t len = file->get_length();
-                PackedByteArray buf = file->get_buffer(len);
-                const ogt_vox_scene* scene = ogt_vox_read_scene(buf.ptr(), (uint32_t)len);
-                if (scene) {
-                    int scene_min_x = INT_MAX, scene_max_x = INT_MIN;
-                    int scene_min_y = INT_MAX, scene_max_y = INT_MIN;
-                    int scene_min_z = INT_MAX, scene_max_z = INT_MIN;
-                    bool has_visible_instances = false;
-
-                    for (uint32_t j = 0; j < scene->num_instances; ++j) {
-                        const ogt_vox_instance& inst = scene->instances[j];
-                        if (inst.hidden) continue;
-                        const ogt_vox_model* model = scene->models[inst.model_index];
-                        if (!model) continue;
-
-                        has_visible_instances = true;
-
-                        int offset_x = (int)inst.transform.m30;
-                        int offset_y = (int)inst.transform.m31;
-                        int offset_z = (int)inst.transform.m32;
-
-                        int inst_min_x = offset_x;
-                        int inst_max_x = offset_x + model->size_x;
-                        int inst_min_y = offset_z; // MV Z -> Godot Y
-                        int inst_max_y = offset_z + model->size_z;
-                        int inst_min_z = offset_y; // MV Y -> Godot Z
-                        int inst_max_z = offset_y + model->size_y;
-
-                        if (inst_min_x < scene_min_x) scene_min_x = inst_min_x;
-                        if (inst_max_x > scene_max_x) scene_max_x = inst_max_x;
-                        if (inst_min_y < scene_min_y) scene_min_y = inst_min_y;
-                        if (inst_max_y > scene_max_y) scene_max_y = inst_max_y;
-                        if (inst_min_z < scene_min_z) scene_min_z = inst_min_z;
-                        if (inst_max_z > scene_max_z) scene_max_z = inst_max_z;
-                    }
-
-                    if (has_visible_instances) {
-                        r.size = Vector3i(
-                            scene_max_x - scene_min_x,
-                            scene_max_y - scene_min_y,
-                            scene_max_z - scene_min_z
-                        );
+            if (r.vox_path.ends_with(".sdf")) {
+                Ref<FileAccess> file = FileAccess::open(r.vox_path, FileAccess::READ);
+                if (file.is_valid()) {
+                    char magic[4];
+                    file->get_buffer((uint8_t*)magic, 4);
+                    if (magic[0] == 'U' && magic[1] == 'S' && magic[2] == 'D' && magic[3] == 'F') {
+                        file->get_16(); // version
+                        file->get_16(); // flags
+                        uint32_t sx = file->get_32();
+                        uint32_t sy = file->get_32();
+                        uint32_t sz = file->get_32();
+                        r.size = Vector3i(sx, sy, sz);
                         size_loaded = true;
-                        UtilityFunctions::print("UnderGenBSPPlacerNode: Loaded size for vox room \"", r.type, "\" from file: ", r.size);
+                        UtilityFunctions::print("UnderGenBSPPlacerNode: Loaded size for SDF room \"", r.type, "\" from file: ", r.size);
+                    } else {
+                        UtilityFunctions::printerr("UnderGenBSPPlacerNode: Invalid magic header in SDF file: ", r.vox_path);
                     }
-                    ogt_vox_destroy_scene(scene);
                 } else {
-                    UtilityFunctions::printerr("UnderGenBSPPlacerNode: Failed to parse vox file for size: ", r.vox_path);
+                    UtilityFunctions::printerr("UnderGenBSPPlacerNode: Failed to open SDF file for size: ", r.vox_path);
                 }
             } else {
-                UtilityFunctions::printerr("UnderGenBSPPlacerNode: Failed to open vox file for size: ", r.vox_path);
+                Ref<FileAccess> file = FileAccess::open(r.vox_path, FileAccess::READ);
+                if (file.is_valid()) {
+                    uint64_t len = file->get_length();
+                    PackedByteArray buf = file->get_buffer(len);
+                    const ogt_vox_scene* scene = ogt_vox_read_scene(buf.ptr(), (uint32_t)len);
+                    if (scene) {
+                        int scene_min_x = INT_MAX, scene_max_x = INT_MIN;
+                        int scene_min_y = INT_MAX, scene_max_y = INT_MIN;
+                        int scene_min_z = INT_MAX, scene_max_z = INT_MIN;
+                        bool has_visible_instances = false;
+
+                        for (uint32_t j = 0; j < scene->num_instances; ++j) {
+                            const ogt_vox_instance& inst = scene->instances[j];
+                            if (inst.hidden) continue;
+                            const ogt_vox_model* model = scene->models[inst.model_index];
+                            if (!model) continue;
+
+                            has_visible_instances = true;
+
+                            int offset_x = (int)inst.transform.m30;
+                            int offset_y = (int)inst.transform.m31;
+                            int offset_z = (int)inst.transform.m32;
+
+                            int inst_min_x = offset_x;
+                            int inst_max_x = offset_x + model->size_x;
+                            int inst_min_y = offset_z; // MV Z -> Godot Y
+                            int inst_max_y = offset_z + model->size_z;
+                            int inst_min_z = offset_y; // MV Y -> Godot Z
+                            int inst_max_z = offset_y + model->size_y;
+
+                            if (inst_min_x < scene_min_x) scene_min_x = inst_min_x;
+                            if (inst_max_x > scene_max_x) scene_max_x = inst_max_x;
+                            if (inst_min_y < scene_min_y) scene_min_y = inst_min_y;
+                            if (inst_max_y > scene_max_y) scene_max_y = inst_max_y;
+                            if (inst_min_z < scene_min_z) scene_min_z = inst_min_z;
+                            if (inst_max_z > scene_max_z) scene_max_z = inst_max_z;
+                        }
+
+                        if (has_visible_instances) {
+                            r.size = Vector3i(
+                                scene_max_x - scene_min_x,
+                                scene_max_y - scene_min_y,
+                                scene_max_z - scene_min_z
+                            );
+                            size_loaded = true;
+                            UtilityFunctions::print("UnderGenBSPPlacerNode: Loaded size for vox room \"", r.type, "\" from file: ", r.size);
+                        }
+                        ogt_vox_destroy_scene(scene);
+                    } else {
+                        UtilityFunctions::printerr("UnderGenBSPPlacerNode: Failed to parse vox file for size: ", r.vox_path);
+                    }
+                } else {
+                    UtilityFunctions::printerr("UnderGenBSPPlacerNode: Failed to open vox file for size: ", r.vox_path);
+                }
             }
         }
 

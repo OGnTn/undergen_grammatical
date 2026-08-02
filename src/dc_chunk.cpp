@@ -132,7 +132,7 @@ void DCChunk::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("set_qef_regularization", "regularization"), &DCChunk::set_qef_regularization);
     ClassDB::bind_method(D_METHOD("get_qef_regularization"), &DCChunk::get_qef_regularization);
-    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "qef_regularization"), "set_qef_regularization", "get_qef_regularization");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "qef_regularization", PROPERTY_HINT_RANGE, "0.0, 1.0, 0.00001, exp, or_greater"), "set_qef_regularization", "get_qef_regularization");
 }
 
 Vector3 solve_qef_cramer(const std::vector<Vector3> &pts, const std::vector<Vector3> &norms, const Vector3 &cell_min, const Vector3 &cell_max, float regularization) {
@@ -177,7 +177,7 @@ Vector3 solve_qef_cramer(const std::vector<Vector3> &pts, const std::vector<Vect
 
     double det = mxx * (myy * mzz - myz * myz) - mxy * (mxy * mzz - myz * mxz) + mxz * (mxy * myz - myy * mxz);
 
-    if (Math::abs(det) < 1e-7) {
+    if (Math::abs(det) < 1e-20) {
         return fallback;
     }
 
@@ -313,11 +313,37 @@ void DCChunk::generate_mesh_from_density_grid() {
                         float val1 = values[c1];
                         float val2 = values[c2];
 
+                        Vector3i diff = cp2 - cp1;
+                        int axis = 0;
+                        if (diff.y != 0) axis = 1;
+                        else if (diff.z != 0) axis = 2;
+
+                        Vector3i min_cp = cp1;
+                        if (diff.x < 0 || diff.y < 0 || diff.z < 0) {
+                            min_cp = cp2;
+                        }
+
                         float t_unscaled = 0.5f;
                         if (Math::abs(val1 - val2) > 1e-6f) {
                             t_unscaled = (threshold - val1) / (val2 - val1);
                         }
                         t_unscaled = Math::clamp(t_unscaled, 0.0f, 1.0f);
+
+                        Vector3 edge_normal;
+                        HermiteEdgeData h_data;
+                        if (density_grid->get_hermite_edge(min_cp, axis, h_data)) {
+                            t_unscaled = h_data.t;
+                            edge_normal = h_data.normal;
+                        } else {
+                            Vector3 n1 = get_grid_gradient(cp1);
+                            Vector3 n2 = get_grid_gradient(cp2);
+                            Vector3 n_interp = n1 + t_unscaled * (n2 - n1);
+                            if (n_interp.length_squared() > 1e-8f) {
+                                edge_normal = n_interp.normalized();
+                            } else {
+                                edge_normal = Vector3(0, 1, 0);
+                            }
+                        }
 
                         // Apply thickness scaling for legacy mode
                         int mat1 = sample_material(cp1.x, cp1.y, cp1.z);
@@ -335,22 +361,15 @@ void DCChunk::generate_mesh_from_density_grid() {
 
                         float t_legacy = t_unscaled;
                         if (val1 > threshold && val2 <= threshold) {
-                            t_legacy = t_unscaled * thickness1;
+                            t_legacy = Math::clamp(t_unscaled - (1.0f - thickness1) * 0.5f, 0.0f, 1.0f);
                         } else if (val2 > threshold && val1 <= threshold) {
-                            t_legacy = 1.0f - (1.0f - t_unscaled) * thickness2;
+                            t_legacy = Math::clamp(t_unscaled + (1.0f - thickness2) * 0.5f, 0.0f, 1.0f);
                         }
 
                         pts_legacy.push_back(Vector3(cp1) + t_legacy * Vector3(cp2 - cp1));
                         pts_unscaled.push_back(Vector3(cp1) + t_unscaled * Vector3(cp2 - cp1));
 
-                        Vector3 n1 = get_grid_gradient(cp1);
-                        Vector3 n2 = get_grid_gradient(cp2);
-                        Vector3 n_interp = n1 + t_unscaled * (n2 - n1);
-                        if (n_interp.length_squared() > 1e-8f) {
-                            norms.push_back(n_interp.normalized());
-                        } else {
-                            norms.push_back(Vector3(0, 1, 0));
-                        }
+                        norms.push_back(edge_normal);
 
                         info.edge_cp1.push_back(cp1);
                         info.edge_cp2.push_back(cp2);
@@ -472,9 +491,9 @@ void DCChunk::generate_mesh_from_density_grid() {
 
             float t_scaled = t_unscaled;
             if (cp1_solid) {
-                t_scaled = t_unscaled * thickness;
+                t_scaled = Math::clamp(t_unscaled - (1.0f - thickness) * 0.5f, 0.0f, 1.0f);
             } else {
-                t_scaled = 1.0f - (1.0f - t_unscaled) * thickness;
+                t_scaled = Math::clamp(t_unscaled + (1.0f - thickness) * 0.5f, 0.0f, 1.0f);
             }
             pts_scaled.push_back(Vector3(cp1) + t_scaled * Vector3(cp2 - cp1));
         }
@@ -506,10 +525,22 @@ void DCChunk::generate_mesh_from_density_grid() {
                         bool start_solid) {
         SurfaceBuilder &surf = surfaces[mat_id];
         int b = surf.vertices.size();
-        surf.vertices.append(p0); surf.normals.append(n0);
-        surf.vertices.append(p1); surf.normals.append(n1);
-        surf.vertices.append(p2); surf.normals.append(n2);
-        surf.vertices.append(p3); surf.normals.append(n3);
+
+        Vector3 q_n0 = n0, q_n1 = n1, q_n2 = n2, q_n3 = n3;
+        if (!smooth_normals) {
+            Vector3 fn = n0 + n1 + n2 + n3;
+            if (fn.length_squared() > 1e-8f) {
+                fn = fn.normalized();
+            } else {
+                fn = Vector3(0, 1, 0);
+            }
+            q_n0 = q_n1 = q_n2 = q_n3 = fn;
+        }
+
+        surf.vertices.append(p0); surf.normals.append(q_n0);
+        surf.vertices.append(p1); surf.normals.append(q_n1);
+        surf.vertices.append(p2); surf.normals.append(q_n2);
+        surf.vertices.append(p3); surf.normals.append(q_n3);
 
         if (start_solid) {
             surf.indices.append(b + 0); surf.indices.append(b + 1); surf.indices.append(b + 2);
@@ -771,11 +802,12 @@ void DCChunk::generate_mesh_from_density_grid() {
                 Vector3 dir1 = (bA - tA);
                 Vector3 dir2 = (bB - tA);
                 Vector3 step_norm = dir1.cross(dir2);
+                bool flip_winding = false;
                 if (step_norm.length_squared() > 1e-8f) {
                     step_norm = step_norm.normalized();
                     if (step_norm.dot(step_dir) < 0.0f) {
                         step_norm = -step_norm;
-                        std::swap(bA, tB);
+                        flip_winding = true;
                     }
                 } else {
                     step_norm = step_dir.length_squared() > 1e-8f ? step_dir.normalized() : rec_thick.nA;
@@ -788,8 +820,13 @@ void DCChunk::generate_mesh_from_density_grid() {
                 surf.vertices.append(bB); surf.normals.append(step_norm);
                 surf.vertices.append(tB); surf.normals.append(step_norm);
 
-                surf.indices.append(base + 0); surf.indices.append(base + 1); surf.indices.append(base + 2);
-                surf.indices.append(base + 0); surf.indices.append(base + 2); surf.indices.append(base + 3);
+                if (!flip_winding) {
+                    surf.indices.append(base + 0); surf.indices.append(base + 2); surf.indices.append(base + 1);
+                    surf.indices.append(base + 0); surf.indices.append(base + 3); surf.indices.append(base + 2);
+                } else {
+                    surf.indices.append(base + 0); surf.indices.append(base + 1); surf.indices.append(base + 2);
+                    surf.indices.append(base + 0); surf.indices.append(base + 2); surf.indices.append(base + 3);
+                }
             }
         }
     } else {

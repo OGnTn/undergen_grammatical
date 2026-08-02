@@ -1,4 +1,5 @@
 #include "undergen_vox_stamp_node.h"
+#include "undergen_sdf_stamp_node.h"
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/math.hpp>
@@ -94,11 +95,12 @@ Dictionary UnderGenVoxStampNode::get_vox_spawn_map() const {
 void UnderGenVoxStampNode::set_vox_material_map(const Dictionary &p_map) {
     vox_material_map = p_map;
     
-    // Disconnect old entries
+    // Map existing entries by palette index to preserve properties like thickness and stepped
+    std::map<int, Ref<VoxMaterialEntry>> existing_entries;
     for (int i = 0; i < vox_material_entries.size(); ++i) {
         Ref<VoxMaterialEntry> entry = vox_material_entries[i];
-        if (entry.is_valid() && entry->is_connected("changed", Callable(this, "_on_entries_changed"))) {
-            entry->disconnect("changed", Callable(this, "_on_entries_changed"));
+        if (entry.is_valid()) {
+            existing_entries[entry->get_palette_index()] = entry;
         }
     }
     
@@ -106,9 +108,6 @@ void UnderGenVoxStampNode::set_vox_material_map(const Dictionary &p_map) {
     Array keys = p_map.keys();
     for (int i = 0; i < keys.size(); ++i) {
         Variant key = keys[i];
-        Ref<VoxMaterialEntry> entry;
-        entry.instantiate();
-        
         int idx = 0;
         if (key.get_type() == Variant::INT) {
             idx = (int)key;
@@ -116,10 +115,20 @@ void UnderGenVoxStampNode::set_vox_material_map(const Dictionary &p_map) {
             idx = ((String)key).to_int();
         }
         
-        entry->set_palette_index(idx);
+        Ref<VoxMaterialEntry> entry;
+        auto it = existing_entries.find(idx);
+        if (it != existing_entries.end()) {
+            entry = it->second;
+        } else {
+            entry.instantiate();
+            entry->set_palette_index(idx);
+        }
+        
         entry->set_material_id(p_map[key]);
         
-        entry->connect("changed", Callable(this, "_on_entries_changed"));
+        if (!entry->is_connected("changed", Callable(this, "_on_entries_changed"))) {
+            entry->connect("changed", Callable(this, "_on_entries_changed"));
+        }
         vox_material_entries.append(entry);
     }
     
@@ -442,20 +451,37 @@ void UnderGenVoxStampNode::_execute(const Dictionary &inputs, Dictionary &output
         room.exclude_from_smoothing = r_dict.get("exclude_from_smoothing", false);
         room.exclude_from_warping = r_dict.get("exclude_from_warping", false);
 
-        const ogt_vox_scene* scene = _load_vox(vox_path);
-        if (scene) {
-            int zone_id = grid->register_zone_name(room.type);
-            Array room_connections;
-            _stamp_vox(grid.ptr(), room, scene, zone_id, vox_spawns, room_connections);
-            r_dict["connection_points"] = room_connections;
-            if (exclude_from_smoothing || room.exclude_from_smoothing) {
-                r_dict["exclude_from_smoothing"] = true;
-            }
-            if (exclude_from_warping || room.exclude_from_warping) {
-                r_dict["exclude_from_warping"] = true;
+        if (vox_path.ends_with(".sdf")) {
+            SDFScene* sdf_scene = UnderGenSdfStampNode::load_sdf_file(vox_path);
+            if (sdf_scene) {
+                int zone_id = grid->register_zone_name(room.type);
+                UnderGenSdfStampNode::stamp_sdf_scene(grid.ptr(), room, sdf_scene, vox_material_map, 0, zone_id, vox_spawns);
+                if (exclude_from_smoothing || room.exclude_from_smoothing) {
+                    r_dict["exclude_from_smoothing"] = true;
+                }
+                if (exclude_from_warping || room.exclude_from_warping) {
+                    r_dict["exclude_from_warping"] = true;
+                }
+                delete sdf_scene;
+            } else {
+                UtilityFunctions::printerr("UnderGenVoxStampNode: Failed to load SDF scene for path: '", vox_path, "'");
             }
         } else {
-            UtilityFunctions::printerr("UnderGenVoxStampNode: Failed to load scene for vox path: '", vox_path, "'");
+            const ogt_vox_scene* scene = _load_vox(vox_path);
+            if (scene) {
+                int zone_id = grid->register_zone_name(room.type);
+                Array room_connections;
+                _stamp_vox(grid.ptr(), room, scene, zone_id, vox_spawns, room_connections);
+                r_dict["connection_points"] = room_connections;
+                if (exclude_from_smoothing || room.exclude_from_smoothing) {
+                    r_dict["exclude_from_smoothing"] = true;
+                }
+                if (exclude_from_warping || room.exclude_from_warping) {
+                    r_dict["exclude_from_warping"] = true;
+                }
+            } else {
+                UtilityFunctions::printerr("UnderGenVoxStampNode: Failed to load scene for vox path: '", vox_path, "'");
+            }
         }
     }
 
@@ -472,8 +498,11 @@ void UnderGenVoxStampNode::_execute(const Dictionary &inputs, Dictionary &output
     for (int i = 0; i < vox_material_entries.size(); ++i) {
         Ref<VoxMaterialEntry> entry = vox_material_entries[i];
         if (entry.is_valid()) {
-            thicknesses[entry->get_material_id()] = entry->get_thickness();
-            stepped_dict[entry->get_material_id()] = entry->is_stepped();
+            int mat_id = entry->get_material_id();
+            if (mat_id > 0) {
+                thicknesses[mat_id] = entry->get_thickness();
+                stepped_dict[mat_id] = entry->is_stepped();
+            }
         }
     }
     context["material_thicknesses"] = thicknesses;
