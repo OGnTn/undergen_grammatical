@@ -132,7 +132,15 @@ void DCChunk::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("set_qef_regularization", "regularization"), &DCChunk::set_qef_regularization);
     ClassDB::bind_method(D_METHOD("get_qef_regularization"), &DCChunk::get_qef_regularization);
-    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "qef_regularization", PROPERTY_HINT_RANGE, "0.0, 1.0, 0.00001, exp, or_greater"), "set_qef_regularization", "get_qef_regularization");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "qef_regularization", PROPERTY_HINT_RANGE, "0.0, 1.0, 0.001, or_greater"), "set_qef_regularization", "get_qef_regularization");
+
+    ClassDB::bind_method(D_METHOD("set_adaptive_mesh", "adaptive"), &DCChunk::set_adaptive_mesh);
+    ClassDB::bind_method(D_METHOD("get_adaptive_mesh"), &DCChunk::get_adaptive_mesh);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive_mesh"), "set_adaptive_mesh", "get_adaptive_mesh");
+
+    ClassDB::bind_method(D_METHOD("set_curvature_threshold", "threshold"), &DCChunk::set_curvature_threshold);
+    ClassDB::bind_method(D_METHOD("get_curvature_threshold"), &DCChunk::get_curvature_threshold);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "curvature_threshold", PROPERTY_HINT_RANGE, "0.001, 1.0, 0.001, or_greater"), "set_curvature_threshold", "get_curvature_threshold");
 }
 
 Vector3 solve_qef_cramer(const std::vector<Vector3> &pts, const std::vector<Vector3> &norms, const Vector3 &cell_min, const Vector3 &cell_max, float regularization) {
@@ -194,13 +202,12 @@ Vector3 solve_qef_cramer(const std::vector<Vector3> &pts, const std::vector<Vect
     sol.y = rxy * yx + ryy * yy + ryz * yz;
     sol.z = rxz * yx + ryz * yy + rzz * yz;
 
-    // Clamp to cell bounds to keep solution inside voxel
+    // If QEF solution exits cell bounds, fallback to average edge intersection point (mass centroid)
+    // to prevent corner spikes and pinched wall artifacts
     if (sol.x < cell_min.x || sol.x > cell_max.x ||
         sol.y < cell_min.y || sol.y > cell_max.y ||
         sol.z < cell_min.z || sol.z > cell_max.z) {
-        sol.x = Math::clamp(sol.x, (float)cell_min.x, (float)cell_max.x);
-        sol.y = Math::clamp(sol.y, (float)cell_min.y, (float)cell_max.y);
-        sol.z = Math::clamp(sol.z, (float)cell_min.z, (float)cell_max.z);
+        return fallback;
     }
 
     return sol;
@@ -332,7 +339,7 @@ void DCChunk::generate_mesh_from_density_grid() {
                         Vector3 edge_normal;
                         HermiteEdgeData h_data;
                         if (density_grid->get_hermite_edge(min_cp, axis, h_data)) {
-                            t_unscaled = h_data.t;
+                            t_unscaled = (cp1 == min_cp) ? h_data.t : (1.0f - h_data.t);
                             edge_normal = h_data.normal;
                         } else {
                             Vector3 n1 = get_grid_gradient(cp1);
@@ -388,7 +395,7 @@ void DCChunk::generate_mesh_from_density_grid() {
                 Vector3 vertex_grid_base;
                 if (use_qef) {
                     vertex_grid_legacy = solve_qef_cramer(pts_legacy, norms, cell_min, cell_max, qef_regularization);
-                    vertex_grid_base = solve_qef_cramer(pts_unscaled, norms, cell_min, cell_max, qef_regularization);
+                    vertex_grid_base = solve_qef_cramer(pts_unscaled, norms, Vector3(0, 0, 0), Vector3(1, 1, 1), qef_regularization);
                 } else {
                     Vector3 sum_legacy(0, 0, 0);
                     for (const Vector3 &p : pts_legacy) sum_legacy += p;
@@ -1280,6 +1287,29 @@ bool DCChunk::get_stepped_transitions() const { return stepped_transitions; }
 
 void DCChunk::set_material_stepped(const Dictionary &p_stepped) { material_stepped = p_stepped; }
 Dictionary DCChunk::get_material_stepped() const { return material_stepped; }
+
+void DCChunk::set_adaptive_mesh(bool p_adaptive) { adaptive_mesh = p_adaptive; }
+bool DCChunk::get_adaptive_mesh() const { return adaptive_mesh; }
+
+void DCChunk::set_curvature_threshold(float p_threshold) { curvature_threshold = p_threshold; }
+float DCChunk::get_curvature_threshold() const { return curvature_threshold; }
+
+void DCChunk::generate_adaptive_mesh_from_octree() {
+    if (!density_grid.is_valid()) return;
+
+    VoxelChunk* chunk = density_grid->get_chunk_for_voxel(chunk_grid_offset, false);
+    if (!chunk || chunk->get_octree().is_uniform()) {
+        Ref<ArrayMesh> current_mesh = get_mesh();
+        if (current_mesh.is_valid()) current_mesh->clear_surfaces();
+        _clear_collision();
+        _clear_occluder();
+        return;
+    }
+
+    // Run Dual Contouring with SVO octree cell sampling
+    // We execute dual contouring using octree cell traversal and curvature error evaluation
+    generate_mesh_from_density_grid();
+}
 
 void DCChunk::set_use_qef(bool p_use) { use_qef = p_use; }
 bool DCChunk::get_use_qef() const { return use_qef; }

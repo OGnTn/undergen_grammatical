@@ -87,6 +87,8 @@ void DensityGrid::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("get_zone_name_by_id", "id"), &DensityGrid::get_zone_name_by_id);
     ClassDB::bind_method(D_METHOD("get_zone_at", "pos"), &DensityGrid::get_zone_at);
+
+    ClassDB::bind_method(D_METHOD("raycast_svo", "origin", "dir", "max_dist", "iso_surface"), &DensityGrid::raycast_svo, DEFVAL(0.0));
 }
 
 void DensityGrid::initialize_grid(int size_x, int size_y, int size_z, float default_value, int default_material_index) {
@@ -334,6 +336,41 @@ bool DensityGrid::get_hermite_edge(const Vector3i &pos, int axis, HermiteEdgeDat
 
 void DensityGrid::clear_hermite_edges() {
     hermite_edges.clear();
+}
+
+Dictionary DensityGrid::raycast_svo(const Vector3 &origin, const Vector3 &dir, float max_dist, float iso_surface) const {
+    Dictionary res;
+    res["hit"] = false;
+
+    Vector3 hit_pos(0, 0, 0);
+    Vector3 hit_norm(0, 1, 0);
+
+    // Search chunk octrees along the ray
+    Vector3 norm_dir = dir.normalized();
+    float step = 0.5f;
+    float dist = 0.0f;
+    Vector3 curr = origin;
+
+    while (dist <= max_dist) {
+        Vector3i pos((int)std::floor(curr.x), (int)std::floor(curr.y), (int)std::floor(curr.z));
+        if (is_valid_position(pos)) {
+            Vector3i c_coord = world_to_chunk_coord(pos);
+            auto it = chunks.find(c_coord);
+            if (it != chunks.end() && it->second) {
+                Vector3i l_pos = world_to_local_coord(pos);
+                if (it->second->get_octree().raycast(Vector3(l_pos.x, l_pos.y, l_pos.z), norm_dir, step * 2.0f, hit_pos, hit_norm, iso_surface)) {
+                    res["hit"] = true;
+                    res["position"] = Vector3(c_coord.x * CHUNK_SIZE, c_coord.y * CHUNK_SIZE, c_coord.z * CHUNK_SIZE) + hit_pos;
+                    res["normal"] = hit_norm;
+                    return res;
+                }
+            }
+        }
+        curr += norm_dir * step;
+        dist += step;
+    }
+
+    return res;
 }
 
 } // namespace godot

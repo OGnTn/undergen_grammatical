@@ -125,6 +125,9 @@ public:
     void set_hermite_edge(const Vector3i &pos, int axis, float t, const Vector3 &normal);
     bool get_hermite_edge(const Vector3i &pos, int axis, HermiteEdgeData &out_data) const;
     void clear_hermite_edges();
+
+    // SVO Raycasting API
+    Dictionary raycast_svo(const Vector3 &origin, const Vector3 &dir, float max_dist, float iso_surface = 0.0f) const;
 };
 
 } // namespace godot

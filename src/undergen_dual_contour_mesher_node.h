@@ -11,8 +11,10 @@ class UnderGenDualContourMesherNode : public UnderGenMesherNode {
 
 private:
     bool use_qef = true;
-    float qef_regularization = 1e-4f;
+    float qef_regularization = 0.01f;
     bool stepped_transitions = true;
+    bool adaptive_mesh = false;
+    float curvature_threshold = 0.05f;
 
 protected:
     static void _bind_methods();
@@ -29,6 +31,12 @@ public:
 
     void set_stepped_transitions(bool p_stepped);
     bool get_stepped_transitions() const;
+
+    void set_adaptive_mesh(bool p_adaptive);
+    bool get_adaptive_mesh() const;
+
+    void set_curvature_threshold(float p_threshold);
+    float get_curvature_threshold() const;
 
     virtual void execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node3D* parent_node) override;
 };

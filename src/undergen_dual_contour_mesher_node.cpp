@@ -17,11 +17,19 @@ void UnderGenDualContourMesherNode::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("set_qef_regularization", "regularization"), &UnderGenDualContourMesherNode::set_qef_regularization);
     ClassDB::bind_method(D_METHOD("get_qef_regularization"), &UnderGenDualContourMesherNode::get_qef_regularization);
-    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "qef_regularization", PROPERTY_HINT_RANGE, "0.0, 1.0, 0.00001, exp, or_greater"), "set_qef_regularization", "get_qef_regularization");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "qef_regularization", PROPERTY_HINT_RANGE, "0.0, 1.0, 0.001, or_greater"), "set_qef_regularization", "get_qef_regularization");
 
     ClassDB::bind_method(D_METHOD("set_stepped_transitions", "stepped"), &UnderGenDualContourMesherNode::set_stepped_transitions);
     ClassDB::bind_method(D_METHOD("get_stepped_transitions"), &UnderGenDualContourMesherNode::get_stepped_transitions);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "stepped_transitions"), "set_stepped_transitions", "get_stepped_transitions");
+
+    ClassDB::bind_method(D_METHOD("set_adaptive_mesh", "adaptive"), &UnderGenDualContourMesherNode::set_adaptive_mesh);
+    ClassDB::bind_method(D_METHOD("get_adaptive_mesh"), &UnderGenDualContourMesherNode::get_adaptive_mesh);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive_mesh"), "set_adaptive_mesh", "get_adaptive_mesh");
+
+    ClassDB::bind_method(D_METHOD("set_curvature_threshold", "threshold"), &UnderGenDualContourMesherNode::set_curvature_threshold);
+    ClassDB::bind_method(D_METHOD("get_curvature_threshold"), &UnderGenDualContourMesherNode::get_curvature_threshold);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "curvature_threshold", PROPERTY_HINT_RANGE, "0.001, 1.0, 0.001, or_greater"), "set_curvature_threshold", "get_curvature_threshold");
 }
 
 void UnderGenDualContourMesherNode::set_use_qef(bool p_use) { use_qef = p_use; }
@@ -32,6 +40,12 @@ float UnderGenDualContourMesherNode::get_qef_regularization() const { return qef
 
 void UnderGenDualContourMesherNode::set_stepped_transitions(bool p_stepped) { stepped_transitions = p_stepped; }
 bool UnderGenDualContourMesherNode::get_stepped_transitions() const { return stepped_transitions; }
+
+void UnderGenDualContourMesherNode::set_adaptive_mesh(bool p_adaptive) { adaptive_mesh = p_adaptive; }
+bool UnderGenDualContourMesherNode::get_adaptive_mesh() const { return adaptive_mesh; }
+
+void UnderGenDualContourMesherNode::set_curvature_threshold(float p_threshold) { curvature_threshold = p_threshold; }
+float UnderGenDualContourMesherNode::get_curvature_threshold() const { return curvature_threshold; }
 
 void UnderGenDualContourMesherNode::execute_with_parent(const Dictionary &inputs, Dictionary &outputs, Node3D* parent_node) {
     if (!parent_node) {
@@ -85,6 +99,8 @@ void UnderGenDualContourMesherNode::execute_with_parent(const Dictionary &inputs
                 chunk->set_use_qef(use_qef);
                 chunk->set_qef_regularization(qef_regularization);
                 chunk->call("set_stepped_transitions", stepped_transitions);
+                chunk->call("set_adaptive_mesh", adaptive_mesh);
+                chunk->call("set_curvature_threshold", curvature_threshold);
 
                 if (liquid_mat.is_valid()) {
                     chunk->call("set_liquid_material", liquid_mat);

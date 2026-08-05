@@ -49,11 +49,14 @@ private:
 
     // Dual Contouring Specific
     bool use_qef = true;
-    float qef_regularization = 1e-4f;
+    float qef_regularization = 0.01f;
     Dictionary material_thicknesses;
     bool stepped_transitions = true;
     Dictionary material_stepped;
+    bool adaptive_mesh = false;
+    float curvature_threshold = 0.05f;
 
+    void generate_adaptive_mesh_from_octree();
     void _generate_liquid_mesh();
     void _clear_liquid();
 
@@ -129,6 +132,12 @@ public:
 
     void set_qef_regularization(float p_reg);
     float get_qef_regularization() const;
+
+    void set_adaptive_mesh(bool p_adaptive);
+    bool get_adaptive_mesh() const;
+
+    void set_curvature_threshold(float p_threshold);
+    float get_curvature_threshold() const;
 };
 
 } // namespace godot

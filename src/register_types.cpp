@@ -35,6 +35,7 @@
 #include "undergen_detail_stamper_node.h"
 #include "undergen_spline_carver_node.h"
 #include "undergen_sdf_stamp_node.h"
+#include "undergen_mesh_stamp_node.h"
 #include "zone_material_entry.h"
 #include "vox_spawn_entry.h"
 #include "vox_material_entry.h"
@@ -89,6 +90,7 @@ void initialize_density_grid_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<UnderGenDetailStamperNode>();
     ClassDB::register_class<UnderGenSplineCarverNode>();
     ClassDB::register_class<UnderGenSdfStampNode>();
+    ClassDB::register_class<UnderGenMeshStampNode>();
     ClassDB::register_class<ZoneMaterialEntry>();
     ClassDB::register_class<VoxSpawnEntry>();
     ClassDB::register_class<VoxMaterialEntry>();

@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstdint>
 #include <godot_cpp/variant/vector3i.hpp>
+#include "voxel_octree.h"
 
 namespace godot {
 
@@ -25,11 +26,14 @@ private:
     float default_air_value = 1.0f;
     float default_solid_value = -1.0f;
 
+    VoxelOctree octree;
+
     std::vector<float> density_data;
     std::vector<uint8_t> material_data;
     std::vector<int32_t> zone_data;
 
     bool is_dirty = false;
+    bool direct_ptr_allocated = false;
 
 public:
     VoxelChunk();
@@ -42,7 +46,11 @@ public:
     bool get_is_dirty() const { return is_dirty; }
     void set_is_dirty(bool dirty) { is_dirty = dirty; }
 
+    VoxelOctree& get_octree() { return octree; }
+    const VoxelOctree& get_octree() const { return octree; }
+
     void allocate_data(float fill_density = 1.0f, uint8_t fill_material = 0, int32_t fill_zone = 0);
+    void ensure_direct_ptr_allocated();
 
     static inline int get_local_index(int x, int y, int z) {
         return x + CHUNK_SIZE * (y + CHUNK_SIZE * z);
@@ -50,7 +58,10 @@ public:
 
     inline float get_density(int x, int y, int z) const {
         if (state == CHUNK_STATE_ALLOCATED) {
-            return density_data[get_local_index(x, y, z)];
+            if (direct_ptr_allocated && !density_data.empty()) {
+                return density_data[get_local_index(x, y, z)];
+            }
+            return octree.get_density(Vector3i(x, y, z));
         }
         return (state == CHUNK_STATE_UNIFORM_SOLID) ? default_solid_value : default_air_value;
     }
@@ -59,13 +70,19 @@ public:
         if (state != CHUNK_STATE_ALLOCATED) {
             allocate_data(state == CHUNK_STATE_UNIFORM_SOLID ? default_solid_value : default_air_value);
         }
-        density_data[get_local_index(x, y, z)] = val;
+        octree.set_density(Vector3i(x, y, z), val);
+        if (direct_ptr_allocated && !density_data.empty()) {
+            density_data[get_local_index(x, y, z)] = val;
+        }
         is_dirty = true;
     }
 
     inline uint8_t get_material(int x, int y, int z) const {
         if (state == CHUNK_STATE_ALLOCATED) {
-            return material_data[get_local_index(x, y, z)];
+            if (direct_ptr_allocated && !material_data.empty()) {
+                return material_data[get_local_index(x, y, z)];
+            }
+            return octree.get_material(Vector3i(x, y, z));
         }
         return 0;
     }
@@ -74,13 +91,19 @@ public:
         if (state != CHUNK_STATE_ALLOCATED) {
             allocate_data(state == CHUNK_STATE_UNIFORM_SOLID ? default_solid_value : default_air_value);
         }
-        material_data[get_local_index(x, y, z)] = mat_id;
+        octree.set_material(Vector3i(x, y, z), mat_id);
+        if (direct_ptr_allocated && !material_data.empty()) {
+            material_data[get_local_index(x, y, z)] = mat_id;
+        }
         is_dirty = true;
     }
 
     inline int32_t get_zone(int x, int y, int z) const {
         if (state == CHUNK_STATE_ALLOCATED) {
-            return zone_data[get_local_index(x, y, z)];
+            if (direct_ptr_allocated && !zone_data.empty()) {
+                return zone_data[get_local_index(x, y, z)];
+            }
+            return octree.get_zone(Vector3i(x, y, z));
         }
         return 0;
     }
@@ -89,19 +112,37 @@ public:
         if (state != CHUNK_STATE_ALLOCATED) {
             allocate_data(state == CHUNK_STATE_UNIFORM_SOLID ? default_solid_value : default_air_value);
         }
-        zone_data[get_local_index(x, y, z)] = zone_id;
+        octree.set_zone(Vector3i(x, y, z), zone_id);
+        if (direct_ptr_allocated && !zone_data.empty()) {
+            zone_data[get_local_index(x, y, z)] = zone_id;
+        }
         is_dirty = true;
     }
 
     // Direct pointer access for fast C++ operations when allocated
-    float* get_density_ptr() { return density_data.empty() ? nullptr : density_data.data(); }
-    const float* get_density_ptr() const { return density_data.empty() ? nullptr : density_data.data(); }
+    float* get_density_ptr() {
+        ensure_direct_ptr_allocated();
+        return density_data.empty() ? nullptr : density_data.data();
+    }
+    const float* get_density_ptr() const {
+        return density_data.empty() ? nullptr : density_data.data();
+    }
 
-    uint8_t* get_material_ptr() { return material_data.empty() ? nullptr : material_data.data(); }
-    const uint8_t* get_material_ptr() const { return material_data.empty() ? nullptr : material_data.data(); }
+    uint8_t* get_material_ptr() {
+        ensure_direct_ptr_allocated();
+        return material_data.empty() ? nullptr : material_data.data();
+    }
+    const uint8_t* get_material_ptr() const {
+        return material_data.empty() ? nullptr : material_data.data();
+    }
 
-    int32_t* get_zone_ptr() { return zone_data.empty() ? nullptr : zone_data.data(); }
-    const int32_t* get_zone_ptr() const { return zone_data.empty() ? nullptr : zone_data.data(); }
+    int32_t* get_zone_ptr() {
+        ensure_direct_ptr_allocated();
+        return zone_data.empty() ? nullptr : zone_data.data();
+    }
+    const int32_t* get_zone_ptr() const {
+        return zone_data.empty() ? nullptr : zone_data.data();
+    }
 };
 
 } // namespace godot
