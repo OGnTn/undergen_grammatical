@@ -24,7 +24,9 @@ public:
     Vector2 get_editor_position() const;
 
     virtual void execute(const Dictionary &inputs, Dictionary &outputs);
+    Dictionary execute_to_dictionary(const Dictionary &inputs);
     virtual void _execute(const Dictionary &inputs, Dictionary &outputs);
+    virtual Dictionary get_pipeline_input_defaults(const Dictionary &global_inputs) const;
 };
 
 } // namespace godot

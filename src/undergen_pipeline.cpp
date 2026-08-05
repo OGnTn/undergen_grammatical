@@ -24,6 +24,7 @@ void UnderGenPipeline::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("get_node_inputs", "node_name"), &UnderGenPipeline::get_node_inputs);
     ClassDB::bind_method(D_METHOD("get_node_outputs", "node_name"), &UnderGenPipeline::get_node_outputs);
+    ClassDB::bind_method(D_METHOD("execute", "initial_inputs"), &UnderGenPipeline::execute);
 
     // Builder
     ClassDB::bind_method(D_METHOD("add_node_of_type", "class_name", "node_name", "properties", "editor_pos"),
@@ -168,7 +169,7 @@ bool UnderGenPipeline::execute_pipeline(const Dictionary &initial_inputs, Dictio
         }
 
         // Gather inputs for this node
-        Dictionary inputs;
+        Dictionary inputs = node->get_pipeline_input_defaults(initial_inputs);
         for (int i = 0; i < connections.size(); ++i) {
             Dictionary conn = connections[i];
             String to = conn.get("to_node", "");
@@ -203,6 +204,12 @@ bool UnderGenPipeline::execute_pipeline(const Dictionary &initial_inputs, Dictio
     }
 
     return true;
+}
+
+Dictionary UnderGenPipeline::execute(const Dictionary &initial_inputs) {
+    Dictionary outputs;
+    if (!execute_pipeline(initial_inputs, outputs)) return Dictionary();
+    return outputs;
 }
 
 Dictionary UnderGenPipeline::get_node_inputs(const String &node_name) const {

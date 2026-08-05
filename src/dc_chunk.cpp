@@ -1299,10 +1299,9 @@ void DCChunk::generate_adaptive_mesh_from_octree() {
 
     VoxelChunk* chunk = density_grid->get_chunk_for_voxel(chunk_grid_offset, false);
     if (!chunk || chunk->get_octree().is_uniform()) {
-        Ref<ArrayMesh> current_mesh = get_mesh();
-        if (current_mesh.is_valid()) current_mesh->clear_surfaces();
-        _clear_collision();
-        _clear_occluder();
+        // Geometry-plan realization writes the authoritative flat grid in bulk.
+        // Fall back to regular DC when no refined sparse octree exists.
+        generate_mesh_from_density_grid();
         return;
     }
 

@@ -12,6 +12,9 @@ namespace godot {
 
 class DensityGrid;
 class UnderGenPointSet;
+class UnderGenSemanticGraph;
+class UnderGenEmbeddedLayout;
+class UnderGenGeometryPlan;
 
 class UnderGenWorld3D : public Node3D {
     GDCLASS(UnderGenWorld3D, Node3D);
@@ -106,6 +109,13 @@ public:
     bool get_is_generating() const { return is_generating; }
 
     Ref<DensityGrid> get_density_grid() const;
+    Ref<UnderGenSemanticGraph> get_semantic_graph() const;
+    Ref<UnderGenEmbeddedLayout> get_embedded_layout() const;
+    Ref<UnderGenGeometryPlan> get_geometry_plan() const;
+    bool move_embedded_space(const String &p_id, const Vector3 &p_position, bool p_rebuild = true);
+    bool set_embedded_space_elevation(const String &p_id, float p_elevation, bool p_rebuild = true);
+    bool move_elevation_band(int p_band, float p_delta_y, bool p_rebuild = true, bool p_include_structural_spaces = false);
+    bool rebuild_spatial_geometry();
     Dictionary get_last_context() const { return _last_context; }
 
 private:
@@ -121,6 +131,7 @@ private:
     // Debug helpers
     void _spawn_debug_zone_labels(const Dictionary &context);
     void _clear_debug_labels();
+    void _remesh_dirty_chunks(const Array &p_dirty_regions);
 };
 
 } // namespace godot

@@ -466,4 +466,10 @@ void UnderGenOutdoorPlacerNode::_execute(const Dictionary &inputs, Dictionary &o
     outputs[0] = context;
 }
 
+Dictionary UnderGenOutdoorPlacerNode::get_pipeline_input_defaults(const Dictionary &global_inputs) const {
+    Dictionary defaults;
+    if (global_inputs.has(0)) defaults[0] = global_inputs[0];
+    return defaults;
+}
+
 } // namespace godot

@@ -2,6 +2,7 @@
 #include "density_grid.h"
 
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/core/math.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 namespace godot {
@@ -55,6 +56,7 @@ void DensityGrid::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_valid_position", "pos"), &DensityGrid::is_valid_position);
     ClassDB::bind_method(D_METHOD("get_index", "pos"), &DensityGrid::get_index);
     ClassDB::bind_method(D_METHOD("set_cell", "pos", "value"), &DensityGrid::set_cell);
+    ClassDB::bind_method(D_METHOD("set_cell_fast", "pos", "value"), &DensityGrid::set_cell_fast);
     ClassDB::bind_method(D_METHOD("get_cell", "pos", "default_value"), &DensityGrid::get_cell, DEFVAL(1.0));
     ClassDB::bind_method(D_METHOD("get_grid_dimensions"), &DensityGrid::get_grid_dimensions);
 
@@ -79,6 +81,7 @@ void DensityGrid::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "surface_threshold"), "set_surface_threshold", "get_surface_threshold");
 
     ClassDB::bind_method(D_METHOD("set_material_id", "pos", "material_index"), &DensityGrid::set_material_id);
+    ClassDB::bind_method(D_METHOD("set_material_id_fast", "pos", "material_index"), &DensityGrid::set_material_id_fast);
     ClassDB::bind_method(D_METHOD("get_material_id", "pos"), &DensityGrid::get_material_id);
 
     ClassDB::bind_method(D_METHOD("set_world_material_grid", "grid"), &DensityGrid::set_world_material_grid);
@@ -87,6 +90,7 @@ void DensityGrid::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("get_zone_name_by_id", "id"), &DensityGrid::get_zone_name_by_id);
     ClassDB::bind_method(D_METHOD("get_zone_at", "pos"), &DensityGrid::get_zone_at);
+    ClassDB::bind_method(D_METHOD("set_zone_at_fast", "pos", "zone_id"), &DensityGrid::set_zone_at_fast);
 
     ClassDB::bind_method(D_METHOD("raycast_svo", "origin", "dir", "max_dist", "iso_surface"), &DensityGrid::raycast_svo, DEFVAL(0.0));
 }
@@ -158,6 +162,14 @@ bool DensityGrid::set_cell(const Vector3i &pos, float value) {
         return true;
     }
     return false;
+}
+
+bool DensityGrid::set_cell_fast(const Vector3i &pos, float value) {
+    int index = get_index(pos);
+    if (index < 0 || index >= world_density_grid.size()) return false;
+    world_density_grid.set(index, value);
+    flat_cache_dirty = true;
+    return true;
 }
 
 float DensityGrid::get_cell(const Vector3i &pos, float default_value) const {
@@ -246,6 +258,13 @@ void DensityGrid::set_material_id(const Vector3i &pos, int material_index) {
     }
 }
 
+void DensityGrid::set_material_id_fast(const Vector3i &pos, int material_index) {
+    int index = get_index(pos);
+    if (index < 0 || index >= world_material_grid.size()) return;
+    world_material_grid.set(index, (uint8_t)Math::clamp(material_index, 0, 255));
+    flat_cache_dirty = true;
+}
+
 int DensityGrid::get_material_id(const Vector3i &pos) const {
     int index = get_index(pos);
     if (index != -1 && index < world_material_grid.size()) {
@@ -285,6 +304,13 @@ void DensityGrid::set_zone_at(const Vector3i &pos, int zone_id) {
             chunk->set_zone(l_pos.x, l_pos.y, l_pos.z, zone_id);
         }
     }
+}
+
+void DensityGrid::set_zone_at_fast(const Vector3i &pos, int zone_id) {
+    int index = get_index(pos);
+    if (index < 0 || index >= world_zone_grid.size()) return;
+    world_zone_grid.set(index, zone_id);
+    flat_cache_dirty = true;
 }
 
 int DensityGrid::get_zone_at(const Vector3i &pos) const {
@@ -342,29 +368,28 @@ Dictionary DensityGrid::raycast_svo(const Vector3 &origin, const Vector3 &dir, f
     Dictionary res;
     res["hit"] = false;
 
-    Vector3 hit_pos(0, 0, 0);
-    Vector3 hit_norm(0, 1, 0);
-
-    // Search chunk octrees along the ray
     Vector3 norm_dir = dir.normalized();
     float step = 0.5f;
     float dist = 0.0f;
     Vector3 curr = origin;
+    Vector3i initial((int)std::floor(curr.x), (int)std::floor(curr.y), (int)std::floor(curr.z));
+    float previous_density = get_cell(initial, 1.0f);
 
     while (dist <= max_dist) {
         Vector3i pos((int)std::floor(curr.x), (int)std::floor(curr.y), (int)std::floor(curr.z));
         if (is_valid_position(pos)) {
-            Vector3i c_coord = world_to_chunk_coord(pos);
-            auto it = chunks.find(c_coord);
-            if (it != chunks.end() && it->second) {
-                Vector3i l_pos = world_to_local_coord(pos);
-                if (it->second->get_octree().raycast(Vector3(l_pos.x, l_pos.y, l_pos.z), norm_dir, step * 2.0f, hit_pos, hit_norm, iso_surface)) {
-                    res["hit"] = true;
-                    res["position"] = Vector3(c_coord.x * CHUNK_SIZE, c_coord.y * CHUNK_SIZE, c_coord.z * CHUNK_SIZE) + hit_pos;
-                    res["normal"] = hit_norm;
-                    return res;
-                }
+            float density = get_cell(pos, 1.0f);
+            if (previous_density < iso_surface && density >= iso_surface) {
+                Vector3 gradient(
+                    get_cell(pos + Vector3i(1, 0, 0), density) - get_cell(pos - Vector3i(1, 0, 0), density),
+                    get_cell(pos + Vector3i(0, 1, 0), density) - get_cell(pos - Vector3i(0, 1, 0), density),
+                    get_cell(pos + Vector3i(0, 0, 1), density) - get_cell(pos - Vector3i(0, 0, 1), density));
+                res["hit"] = true;
+                res["position"] = curr;
+                res["normal"] = gradient.length_squared() > 0.0001f ? gradient.normalized() : -norm_dir;
+                return res;
             }
+            previous_density = density;
         }
         curr += norm_dir * step;
         dist += step;

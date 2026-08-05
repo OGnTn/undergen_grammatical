@@ -11,6 +11,7 @@
 #include "undergen_pipeline.h"
 #include "undergen_world_3d.h"
 #include "level_grammar_spec.h"
+#include "undergen_spatial_model.h"
 
 // Concrete pipeline nodes
 #include "undergen_bsp_placer_node.h"
@@ -36,6 +37,7 @@
 #include "undergen_spline_carver_node.h"
 #include "undergen_sdf_stamp_node.h"
 #include "undergen_mesh_stamp_node.h"
+#include "undergen_spatial_nodes.h"
 #include "zone_material_entry.h"
 #include "vox_spawn_entry.h"
 #include "vox_material_entry.h"
@@ -68,6 +70,19 @@ void initialize_density_grid_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<LevelGrammarRuleSpec>();
     ClassDB::register_class<LevelGrammarSpec>();
 
+    // --- Topology / Embedding / Geometry spatial model ---
+    ClassDB::register_class<UnderGenTopologyNodeData>();
+    ClassDB::register_class<UnderGenTopologyEdgeData>();
+    ClassDB::register_class<UnderGenSemanticGraph>();
+    ClassDB::register_class<UnderGenPathState>();
+    ClassDB::register_class<UnderGenSpatialField>();
+    ClassDB::register_class<UnderGenEmbeddedSpace>();
+    ClassDB::register_class<UnderGenEmbeddedPath>();
+    ClassDB::register_class<UnderGenEmbeddedLayout>();
+    ClassDB::register_class<UnderGenGeometryOperation>();
+    ClassDB::register_class<UnderGenGeometryPlan>();
+    ClassDB::register_class<UnderGenGenerationPreset>();
+
     // --- Concrete Pipeline Nodes ---
     ClassDB::register_class<UnderGenBSPPlacerNode>();
     ClassDB::register_class<UnderGenOutdoorPlacerNode>();
@@ -91,6 +106,12 @@ void initialize_density_grid_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<UnderGenSplineCarverNode>();
     ClassDB::register_class<UnderGenSdfStampNode>();
     ClassDB::register_class<UnderGenMeshStampNode>();
+    ClassDB::register_class<UnderGenTopologyBuilderNode>();
+    ClassDB::register_class<UnderGenSpatialEmbedderNode>();
+    ClassDB::register_class<UnderGenSpatialValidatorNode>();
+    ClassDB::register_class<UnderGenGeometryPlannerNode>();
+    ClassDB::register_class<UnderGenGeometryRealizerNode>();
+    ClassDB::register_class<UnderGenGameplayMarkerNode>();
     ClassDB::register_class<ZoneMaterialEntry>();
     ClassDB::register_class<VoxSpawnEntry>();
     ClassDB::register_class<VoxMaterialEntry>();

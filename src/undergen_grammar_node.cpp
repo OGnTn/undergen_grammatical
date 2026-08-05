@@ -135,6 +135,8 @@ Dictionary UnderGenGrammarNode::_make_node(
         n["max_size"] = rt.get("max_size", Vector3i(10, 6, 10));
         String vox = rt.get("vox_path", "");
         if (!vox.is_empty()) n["vox_path"] = vox;
+        n["exclude_from_smoothing"] = rt.get("exclude_from_smoothing", false);
+        n["exclude_from_warping"] = rt.get("exclude_from_warping", false);
     } else {
         n["min_size"] = Vector3i(5, 3, 5);
         n["max_size"] = Vector3i(10, 6, 10);
@@ -176,6 +178,8 @@ void UnderGenGrammarNode::_execute(const Dictionary& inputs, Dictionary& outputs
         d["min_size"] = rt->get("min_size");
         d["max_size"] = rt->get("max_size");
         d["vox_path"] = rt->get("vox_path");
+        d["exclude_from_smoothing"] = rt->get("exclude_from_smoothing");
+        d["exclude_from_warping"] = rt->get("exclude_from_warping");
         rt_map[sym] = d;
     }
 
@@ -357,6 +361,12 @@ void UnderGenGrammarNode::_execute(const Dictionary& inputs, Dictionary& outputs
     UtilityFunctions::print(
         "UnderGenGrammarNode: expanded to ", nodes.size(),
         " nodes, ", edges.size(), " edges.");
+}
+
+Dictionary UnderGenGrammarNode::get_pipeline_input_defaults(const Dictionary &global_inputs) const {
+    Dictionary defaults;
+    if (global_inputs.has(0)) defaults[0] = global_inputs[0];
+    return defaults;
 }
 
 } // namespace godot

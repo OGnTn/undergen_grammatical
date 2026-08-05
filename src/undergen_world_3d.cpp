@@ -9,6 +9,10 @@
 #include "undergen_vox_stamp_node.h"
 #include "undergen_detail_stamper_node.h"
 #include "undergen_modular_astar_carver_node.h"
+#include "undergen_spatial_model.h"
+#include "undergen_spatial_nodes.h"
+#include "mc_chunk.h"
+#include "dc_chunk.h"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/classes/label3d.hpp>
 #include <godot_cpp/classes/multiplayer_spawner.hpp>
@@ -108,6 +112,13 @@ void UnderGenWorld3D::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::COLOR, "debug_zone_label_color"), "set_debug_zone_label_color", "get_debug_zone_label_color");
 
     ClassDB::bind_method(D_METHOD("get_density_grid"), &UnderGenWorld3D::get_density_grid);
+    ClassDB::bind_method(D_METHOD("get_semantic_graph"), &UnderGenWorld3D::get_semantic_graph);
+    ClassDB::bind_method(D_METHOD("get_embedded_layout"), &UnderGenWorld3D::get_embedded_layout);
+    ClassDB::bind_method(D_METHOD("get_geometry_plan"), &UnderGenWorld3D::get_geometry_plan);
+    ClassDB::bind_method(D_METHOD("move_embedded_space", "id", "position", "rebuild"), &UnderGenWorld3D::move_embedded_space, DEFVAL(true));
+    ClassDB::bind_method(D_METHOD("set_embedded_space_elevation", "id", "elevation", "rebuild"), &UnderGenWorld3D::set_embedded_space_elevation, DEFVAL(true));
+    ClassDB::bind_method(D_METHOD("move_elevation_band", "band", "delta_y", "rebuild", "include_structural_spaces"), &UnderGenWorld3D::move_elevation_band, DEFVAL(true), DEFVAL(false));
+    ClassDB::bind_method(D_METHOD("rebuild_spatial_geometry"), &UnderGenWorld3D::rebuild_spatial_geometry);
     ClassDB::bind_method(D_METHOD("get_last_context"), &UnderGenWorld3D::get_last_context);
 
     // Signals
@@ -116,6 +127,8 @@ void UnderGenWorld3D::_bind_methods() {
     ADD_SIGNAL(MethodInfo("meshing_completed"));
     ADD_SIGNAL(MethodInfo("spawning_completed"));
     ADD_SIGNAL(MethodInfo("generation_failed", PropertyInfo(Variant::STRING, "reason")));
+    ADD_SIGNAL(MethodInfo("spatial_layout_changed", PropertyInfo(Variant::STRING, "source_id"), PropertyInfo(Variant::ARRAY, "dirty_regions"), PropertyInfo(Variant::INT, "revision")));
+    ADD_SIGNAL(MethodInfo("spatial_geometry_rebuilt", PropertyInfo(Variant::ARRAY, "dirty_regions"), PropertyInfo(Variant::INT, "revision")));
 }
 
 void UnderGenWorld3D::set_pipeline(const Ref<UnderGenPipeline> &p_pipeline) {
@@ -350,6 +363,7 @@ void UnderGenWorld3D::_on_layout_completed(const Dictionary &outputs) {
                 if (!context.is_empty()) {
                     _last_context = context;
                     _last_voxel_size = mesher->get_voxel_size();
+                    update_gizmos();
                 }
 
                 Dictionary node_outputs;
@@ -374,12 +388,15 @@ void UnderGenWorld3D::_on_meshing_completed(const Dictionary &outputs) {
     // Spawn debug zone labels if enabled
     if (debug_show_zone_labels) {
         _spawn_debug_zone_labels(_last_context);
-        _last_context = Dictionary(); // Release reference safely without clearing shared dictionary data
     }
 
-    // Gather all vox spawns from any pipeline nodes
+    // Prefer the final context consumed by the mesher. This lets downstream
+    // semantic marker nodes replace authored route markers without older
+    // intermediate node outputs reintroducing duplicates.
     vox_spawns.clear();
-    if (pipeline.is_valid()) {
+    if (_last_context.has("vox_spawns")) {
+        vox_spawns = ((Array)_last_context["vox_spawns"]).duplicate();
+    } else if (pipeline.is_valid()) {
         Array nodes = pipeline->get_nodes();
         for (int i = 0; i < nodes.size(); ++i) {
             Ref<UnderGenNode> node = nodes[i];
@@ -739,6 +756,101 @@ Ref<DensityGrid> UnderGenWorld3D::get_density_grid() const {
         return _last_context["grid"];
     }
     return Ref<DensityGrid>();
+}
+
+Ref<UnderGenSemanticGraph> UnderGenWorld3D::get_semantic_graph() const {
+    return _last_context.get("semantic_graph", Ref<UnderGenSemanticGraph>());
+}
+
+Ref<UnderGenEmbeddedLayout> UnderGenWorld3D::get_embedded_layout() const {
+    return _last_context.get("embedded_layout", Ref<UnderGenEmbeddedLayout>());
+}
+
+Ref<UnderGenGeometryPlan> UnderGenWorld3D::get_geometry_plan() const {
+    return _last_context.get("geometry_plan", Ref<UnderGenGeometryPlan>());
+}
+
+bool UnderGenWorld3D::move_embedded_space(const String &p_id, const Vector3 &p_position, bool p_rebuild) {
+    if (is_generating) return false;
+    Ref<UnderGenEmbeddedLayout> layout = get_embedded_layout();
+    if (layout.is_null() || !layout->move_space(p_id, p_position)) return false;
+    layout->validate_layout();
+    emit_signal("spatial_layout_changed", p_id, layout->get_dirty_regions(), layout->get_revision());
+    return !p_rebuild || rebuild_spatial_geometry();
+}
+
+bool UnderGenWorld3D::set_embedded_space_elevation(const String &p_id, float p_elevation, bool p_rebuild) {
+    Ref<UnderGenEmbeddedLayout> layout = get_embedded_layout();
+    if (layout.is_null()) return false;
+    Ref<UnderGenEmbeddedSpace> space = layout->find_space(p_id);
+    if (space.is_null()) return false;
+    Vector3 position = space->get_position(); position.y = p_elevation;
+    return move_embedded_space(p_id, position, p_rebuild);
+}
+
+bool UnderGenWorld3D::move_elevation_band(int p_band, float p_delta_y, bool p_rebuild, bool p_include_structural_spaces) {
+    if (is_generating) return false;
+    Ref<UnderGenEmbeddedLayout> layout = get_embedded_layout();
+    if (layout.is_null() || !layout->move_elevation_band(p_band, p_delta_y, p_include_structural_spaces)) return false;
+    layout->validate_layout();
+    emit_signal("spatial_layout_changed", "band:" + String::num_int64(p_band), layout->get_dirty_regions(), layout->get_revision());
+    return !p_rebuild || rebuild_spatial_geometry();
+}
+
+bool UnderGenWorld3D::rebuild_spatial_geometry() {
+    if (is_generating || pipeline.is_null()) return false;
+    Ref<UnderGenEmbeddedLayout> layout = get_embedded_layout();
+    if (layout.is_null()) return false;
+    UnderGenGeometryPlannerNode *planner = nullptr;
+    UnderGenGeometryRealizerNode *realizer = nullptr;
+    UnderGenGameplayMarkerNode *gameplay_markers = nullptr;
+    Array nodes = pipeline->get_nodes();
+    for (int i = 0; i < nodes.size(); ++i) {
+        Ref<UnderGenNode> node = nodes[i]; if (node.is_null()) continue;
+        if (!planner) planner = Object::cast_to<UnderGenGeometryPlannerNode>(node.ptr());
+        if (!realizer) realizer = Object::cast_to<UnderGenGeometryRealizerNode>(node.ptr());
+        if (!gameplay_markers) gameplay_markers = Object::cast_to<UnderGenGameplayMarkerNode>(node.ptr());
+    }
+    if (!planner || !realizer) return false;
+    Array dirty_regions = layout->get_dirty_regions();
+    if (dirty_regions.is_empty()) dirty_regions.append(layout->get_bounds());
+    Ref<UnderGenGeometryPlan> plan = planner->build_plan(layout);
+    if (plan.is_null()) return false;
+    _last_context = realizer->rebuild_dirty_regions(_last_context, plan, dirty_regions);
+    if (gameplay_markers) {
+        Dictionary marker_inputs;
+        marker_inputs[0] = _last_context;
+        Dictionary marker_outputs;
+        gameplay_markers->execute(marker_inputs, marker_outputs);
+        if (marker_outputs.has(0) && marker_outputs[0].get_type() == Variant::DICTIONARY) {
+            _last_context = marker_outputs[0];
+            vox_spawns = ((Array)_last_context.get("vox_spawns", Array())).duplicate();
+        }
+    }
+    _remesh_dirty_chunks(dirty_regions);
+    layout->clear_dirty_regions();
+    update_gizmos();
+    emit_signal("spatial_geometry_rebuilt", dirty_regions, layout->get_revision());
+    return true;
+}
+
+void UnderGenWorld3D::_remesh_dirty_chunks(const Array &p_dirty_regions) {
+    for (int i = 0; i < get_child_count(); ++i) {
+        Node *child = get_child(i);
+        Vector3i offset;
+        int chunk_size = 0;
+        MCChunk *mc = Object::cast_to<MCChunk>(child);
+        DCChunk *dc = Object::cast_to<DCChunk>(child);
+        if (mc) { offset = mc->get_chunk_grid_offset(); chunk_size = mc->get_chunk_size(); }
+        else if (dc) { offset = dc->get_chunk_grid_offset(); chunk_size = dc->get_chunk_size(); }
+        else continue;
+        AABB chunk_bounds(Vector3(offset) - Vector3(1, 1, 1), Vector3(chunk_size + 2, chunk_size + 2, chunk_size + 2));
+        bool touched = false;
+        for (int r = 0; r < p_dirty_regions.size(); ++r) {
+            if (p_dirty_regions[r].get_type() == Variant::AABB && chunk_bounds.intersects((AABB)p_dirty_regions[r])) { touched = true; break; }
+        }
+        if (touched) child->call_deferred("generate_mesh_from_density_grid");
+    }
 }
 
 } // namespace godot

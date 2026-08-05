@@ -69,6 +69,7 @@ public:
     bool is_valid_position(const Vector3i &pos) const;
     int get_index(const Vector3i &pos) const;
     bool set_cell(const Vector3i &pos, float value);
+    bool set_cell_fast(const Vector3i &pos, float value);
     float get_cell(const Vector3i &pos, float default_value = 1.0f) const;
     Vector3i get_grid_dimensions() const;
 
@@ -110,12 +111,14 @@ public:
     float get_surface_threshold() const;
 
     void set_material_id(const Vector3i &pos, int material_index);
+    void set_material_id_fast(const Vector3i &pos, int material_index);
     int get_material_id(const Vector3i &pos) const;
 
     void set_world_material_grid(const PackedByteArray &p_grid);
     PackedByteArray get_world_material_grid() const;
 
     void set_zone_at(const Vector3i &pos, int zone_id);
+    void set_zone_at_fast(const Vector3i &pos, int zone_id);
     int get_zone_at(const Vector3i &pos) const;
     String get_zone_name_by_id(int zone_id) const;
     int get_zone_count() const;

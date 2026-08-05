@@ -49,6 +49,7 @@ public:
     float get_spread_ratio() const;
 
     virtual void _execute(const Dictionary &inputs, Dictionary &outputs) override;
+    virtual Dictionary get_pipeline_input_defaults(const Dictionary &global_inputs) const override;
 };
 
 } // namespace godot

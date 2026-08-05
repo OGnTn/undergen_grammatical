@@ -371,6 +371,7 @@ void UnderGenVoxStampNode::_stamp_vox(DensityGrid* grid, const ResolvedRoom &roo
                             spawn_d["position"] = Vector3(fx, fy, fz);
                             spawn_d["palette_index"] = (int)ci;
                             spawn_d["spawn_type"] = vox_spawn_map[key_int];
+                            spawn_d["source"] = "vox";
                             out_spawns.push_back(spawn_d);
                         } else if (vox_spawn_map.has(key_str)) {
                             grid->set_cell(gp, OPEN);
@@ -378,6 +379,7 @@ void UnderGenVoxStampNode::_stamp_vox(DensityGrid* grid, const ResolvedRoom &roo
                             spawn_d["position"] = Vector3(fx, fy, fz);
                             spawn_d["palette_index"] = (int)ci;
                             spawn_d["spawn_type"] = vox_spawn_map[key_str];
+                            spawn_d["source"] = "vox";
                             out_spawns.push_back(spawn_d);
                         } else {
                             if (vox_inverse_density) {
@@ -486,9 +488,9 @@ void UnderGenVoxStampNode::_execute(const Dictionary &inputs, Dictionary &output
     }
 
     // Pack spawns into an Array for downstream nodes
-    Array spawns_array;
+    Array spawns_array = context.get("vox_spawns", Array()).duplicate();
     for (const auto& s : vox_spawns) {
-        spawns_array.append(s);
+        if (!spawns_array.has(s)) spawns_array.append(s);
     }
     context["vox_spawns"] = spawns_array;
 

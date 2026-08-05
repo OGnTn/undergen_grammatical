@@ -41,6 +41,7 @@ public:
 
     // ── Pipeline Execution Engine ─────────────────────────────────────────
     bool execute_pipeline(const Dictionary &initial_inputs, Dictionary &out_final_outputs);
+    Dictionary execute(const Dictionary &initial_inputs);
 
     Dictionary get_node_inputs(const String &node_name) const;
     Dictionary get_node_outputs(const String &node_name) const;
@@ -99,4 +100,3 @@ private:
 } // namespace godot
 
 #endif // UNDERGEN_PIPELINE_H
-
